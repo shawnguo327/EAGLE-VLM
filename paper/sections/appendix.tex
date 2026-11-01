@@ -13,3 +13,22 @@
 
 \section{Implementation}
 Images are resized so that the long side is at most 768 pixels, and text is clipped at 4{,}000 characters. Judges run in \texttt{bfloat16} with HF Transformers, and readout is the log-softmax over the full vocabulary at the first generated position. Code: \texttt{judge\_bench.py}, \texttt{analyze\_bench.py}, \texttt{eaglev\_stats.py}.
+
+\section{Place Pulse Vote Audit}\label{app:ppaudit}
+We group all 1.55M votes (strict and tie) by unordered image pair and attribute, and sort the votes on each pair by timestamp.
+
+\begin{center}\small
+\begin{tabular}{lrr}
+\toprule
+Gap to previous vote on the same pair & Count & Agreement (strict only)\\
+\midrule
+$<10$\,s & 15{,}018 & .914\\
+10\,s -- 1\,min & 2{,}153 & .889\\
+1\,min -- 1\,h & 825 & .835\\
+1\,h -- 1\,day & 536 & .702\\
+$\ge1$ day & 98 & .614\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Votes within a minute always have the same left/right presentation, so they are repeated submissions of one comparison rather than independent raters. We drop any vote that follows a vote on the same pair within one day (16{,}790 votes). After this, the pilot's 720 multi-vote pairs average 0.96 votes each. Scripts: \texttt{scripts/pp\_vote\_audit.py}, \texttt{scripts/pp\_bt\_ceiling.py}.

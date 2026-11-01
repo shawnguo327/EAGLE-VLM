@@ -25,5 +25,7 @@ $\Ex[(y-f)^2\mid x]=\eta(1-\eta)+(\eta-f)^2$. Take expectations and use $\mathrm
 \noindent On benchmarks with verified labels ($\eta\in\{0,1\}$), the cap is 1 and a good judge can replace most human labels.
 On crowd perception votes the cap is low: when the two images are similar, $\eta$ is near $1/2$ for most pairs.
 The cap can be estimated directly from multi-vote pairs, which makes it a cheap diagnostic of ``can a judge help here?'' before running any judge.
-\todo{estimate $\mathrm{Var}(\eta)/\mathrm{Var}(y)$ on Place Pulse multi-vote pairs (per attribute) and on GenAI-Arena if repeated battles exist.}
-Finding~3 adds a second limit: the judge's confidence is unrelated to $\eta$, so even the routing cannot target the pairs that humans find hard.
+On Place Pulse, $\eta$ cannot be estimated from repeat votes, because they are duplicates (\cref{app:ppaudit}). We therefore bound the explainable share from below with the best image-level model fitted to human votes.
+After deduplication, we fit an L2-regularised Bradley--Terry model with a left-position term on 90\% of each attribute's votes. On the held-out 10\% it explains only 2.2\% (boring) to 9.8\% (beautiful) of vote variance, with accuracy .56--.63.
+With 2--4 votes per image, Bradley--Terry underfits, so these figures are loose lower bounds. Still, the VLM judges' .645 accuracy against single votes is already at this human-fitted level.
+The consequence: on Place Pulse, PPI at the level of single votes can save only a few percent of human labels. The value of a judge lies in \emph{image}-level scores, where votes are aggregated and the predictable share is much larger.
