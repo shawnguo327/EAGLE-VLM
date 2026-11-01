@@ -199,4 +199,16 @@ write("lora.tex", "\\begin{tabular}{lcccccc}\\toprule\nJudge & training & acc. (
 write("evidence.tex", "\\begin{tabular}{lcccc}\\toprule\nCondition & acc. & err.\\ AUROC $U$ & tie AUROC $U$ & $\\Delta U$ on errors vs.\\ ties \\\\\\midrule\n"
       + "\n".join(f"{s} & " + " & ".join([PH()] * 4) + " \\\\" for s in ["768 px (default)", "112 px (low-res probe)", "1536 px + tiling", "describe-then-judge"])
       + "\n\\bottomrule\\end{tabular}\n")
+# one-table summary of the pre-registered interventions for the main text (details in the supplement)
+LEV = [("Prompt paraphrases (3)", "tri, capped aleatoric sets", "$\\pT$ tie AUROC stable; verdict SD tracks errors"),
+       ("Image nuisance (JPEG, crop)", "tri, capped aleatoric sets", "SD tracks errors, not ties"),
+       ("1536\\,px + tiling", "bin, capped sets", "fewer errors; ties unchanged"),
+       ("Describe-then-judge", "bin, capped sets", "fewer perception errors"),
+       ("Reasoning, $N{=}4$ samples", "aleatoric sets + text", "acc.\\ $+{\\ge}2$; $r_T$ tracks ties"),
+       ("Scale 1B$\\to$72B (3 families)", "bin/tri", "error AUROC $\\uparrow$, shared errors $\\downarrow$"),
+       ("Text LLM judges", "MT-Bench, LMArena", "cleaner $\\pT$ if the gap is visual"),
+       ("LoRA on preference distributions", "full sets, 2 folds", "tie AUROC ${\\ge}.75$, T chosen on ties")]
+write("levers_summary.tex", "\\begin{tabular}{lllcc}\\toprule\nIntervention & Setting & Pre-registered prediction & "
+      "$\\Delta$ tie AUROC & $\\Delta$ err.\\ AUROC \\\\\\midrule\n"
+      + "\n".join(f"{n} & {st} & {pr} & {PH()} & {PH()} \\\\" for n, st, pr in LEV) + "\n\\bottomrule\\end{tabular}\n")
 print("pp rerun complete:", pp_ok)
