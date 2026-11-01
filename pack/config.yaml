@@ -46,7 +46,7 @@ dataset_sets:
   sub:  [pp, mmrb2, genai_arena, mllm_judge, editreward, vlrb, mmrb, mjbench, imagerewarddb, qbench2, mmrlhf]
   full: [pp_full, mmrb2_full, genai_arena_full, mllm_judge_full, editreward_full, imagerewarddb_full, mmrb_full,
          pp, vlrb, mjbench, qbench2, mmrlhf]
-  text: [mtbench_human, chatbot_arena]
+  text: [mtbench_human, arena55k]
   aleatoric: [pp_full, mmrb2_full, genai_arena_full, mllm_judge_full, editreward_full, imagerewarddb_full]
 
 # Phases. ./run.sh start P1 P2 ... puts them in ONE priority queue (command-line order); idle GPUs are backfilled.

@@ -20,7 +20,7 @@ for R in $DATA $FULL; do [ -d $R/images ] && (cp -aln $R/images/. $PACK/data/ima
 python3 - "$DATA" "$FULL" "$PACK" <<'PY'
 import json, os, shutil, sys
 data, full, pack = sys.argv[1:]
-KEEP = {"pp_full", "mtbench_human", "chatbot_arena"}
+KEEP = {"pp_full", "mtbench_human", "arena55k"}
 srcs = [(data, f, f) for f in sorted(os.listdir(f"{data}/items")) if f.endswith(".jsonl")]
 if os.path.isdir(f"{full}/items"):
     srcs += [(full, f, f if f[:-6] in KEEP else f[:-6] + "_full.jsonl") for f in sorted(os.listdir(f"{full}/items")) if f.endswith(".jsonl")]
