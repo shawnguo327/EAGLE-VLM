@@ -234,3 +234,41 @@ def ppi_bt_tuned(pairs, yhat, y, labelled, pi, n_items, lams=(0, .25, .5, .75, 1
         if best is None or v < best[0]:
             best = (v, lam)
     return ppi_bt(pairs, yhat, y, labelled, pi, n_items, best[1]), best[1]
+
+
+def ladder_multi(rungs, alpha, delta=0.1, seed=0, n_splits=50, costs=None):
+    """General escalation ladder. rungs: list of (conf, err) arrays aligned over the same items, in escalation order;
+    a final human rung (error 0) is implicit. Thresholds follow one equal-quantile path across all rungs
+    (strict -> lenient) and are chosen by fixed-sequence testing on the Clopper-Pearson bound of the error among
+    machine-decided items. costs[r] = cost of *reaching* rung r (paid by every item that gets there); human cost
+    is costs[-1] if len(costs) == len(rungs) + 1. Returns mean automation, per-rung shares, risk, violation, cost."""
+    R = len(rungs); n = len(rungs[0][0]); rng = np.random.default_rng(seed)
+    C = [np.asarray(c, float) for c, _ in rungs]; E = [np.asarray(e, int) for _, e in rungs]
+    res = collections.defaultdict(list)
+    for _ in range(n_splits):
+        p = rng.permutation(n); cal, te = p[: n // 2], p[n // 2:]
+        qs = 1 - np.linspace(start_cov(len(cal), alpha, delta), 1.0, 39)
+        chosen = [np.inf] * R
+        for q in qs:
+            t = [np.quantile(C[r][cal], q) for r in range(R)]
+            undecided = np.ones(len(cal), bool); k = m = 0
+            for r in range(R):
+                acc = undecided & (C[r][cal] >= t[r]); k += int(E[r][cal][acc].sum()); m += int(acc.sum()); undecided &= ~acc
+            if m > 0 and cp_upper(k, m, delta) <= alpha:
+                chosen = t
+            else:
+                break
+        undecided = np.ones(len(te), bool); k = m = 0; cost = np.zeros(len(te)); shares = []
+        for r in range(R):
+            if costs is not None:
+                cost += undecided * costs[r]
+            acc = undecided & (C[r][te] >= chosen[r]); k += int(E[r][te][acc].sum()); m += int(acc.sum())
+            undecided &= ~acc; shares.append(acc.mean())
+        if costs is not None and len(costs) > R:
+            cost += undecided * costs[R]
+        risk = k / m if m else 0.0
+        res["auto"].append(1 - undecided.mean()); res["risk"].append(risk); res["viol"].append(risk > alpha)
+        res["cost"].append(cost.mean())
+        for r, s in enumerate(shares):
+            res[f"share_r{r}"].append(s)
+    return {k: float(np.mean(v)) for k, v in res.items()}
