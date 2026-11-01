@@ -60,3 +60,8 @@ phases:   # priority = order on the start command line
     conds: tri_jpeg,tri_crop
     datasets: sub_aleatoric
     models: [qwen3vl8b]
+  L8_imgnuis_ivl:
+    type: judge
+    conds: tri_jpeg,tri_crop
+    datasets: sub_aleatoric
+    models: [internvl35_8b]
