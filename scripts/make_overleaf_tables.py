@@ -204,6 +204,8 @@ LEV = [("Prompt paraphrases (3)", "tri, capped aleatoric sets", "$\\pT$ tie AURO
        ("Image nuisance (JPEG, crop)", "tri, capped aleatoric sets", "SD tracks errors, not ties"),
        ("1536\\,px + tiling", "bin, capped sets", "fewer errors; ties unchanged"),
        ("Describe-then-judge", "bin, capped sets", "fewer perception errors"),
+       ("Targeted close-up (vs.\\ random, same-pixel)", "tri, edit pairs", "fixes low-conf.\\ errors only if targeted; ties keep $\\pT$"),
+       ("Blind / wrong question image", "tri, response sets", "errors unchanged blind $\\Rightarrow$ language prior"),
        ("Reasoning, $N{=}4$ samples", "aleatoric sets + text", "acc.\\ $+{\\ge}2$; $r_T$ tracks ties"),
        ("Scale 1B$\\to$72B (3 families)", "bin/tri", "error AUROC $\\uparrow$, shared errors $\\downarrow$"),
        ("Text LLM judges", "MT-Bench, LMArena", "cleaner $\\pT$ if the gap is visual"),

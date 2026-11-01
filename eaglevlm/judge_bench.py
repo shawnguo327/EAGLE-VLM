@@ -19,6 +19,12 @@ Readout = first-token log-probs over the answer keys. Conditions:
     tri_p1..3  A/B/T with three paraphrased instructions (prompt-nuisance ensemble)
     tri_jpeg   A/B/T with every image JPEG-recompressed at quality 30 (image-nuisance)
     tri_crop   A/B/T with every image center-cropped to 90% (image-nuisance)
+    tri_blind  A/B/T without the question images (resp items; does the verdict use the image at all?)
+    tri_wrong  A/B/T with the question images of another item of the same dataset (resp items; image-swap control)
+    tri_zoom   A/B/T plus close-ups of one region of source/A/B (edit items with a source image). Region = the window
+               the edits changed most (aligned edits) or where A and B differ most (label-free, fixed rule). Close-ups from the native image.
+    tri_zoomr  same, region of the same size at a random position (seeded by the id): untargeted control
+    tri_zoomlo same region as tri_zoom, but cropped from the 768-px image the judge already sees (no new pixels)
   pointwise (per candidate A/B)
     score      1..9
 Item kinds: resp (question images + two text responses), img (two images), text (no images; text-domain judge sets,
@@ -40,8 +46,64 @@ MODELS = {"qwen3vl8b": PP / "Qwen3-VL-8B-Instruct", "qwen35_9b": PP / "Qwen3.5-9
 MAXSIDE, LOWRES, HIRES = 768, 112, 1536
 MAXCHARS = 4000
 PAIR = {"bin", "tri", "str7", "bin_blind", "bin_lowres", "bin_hires", "bin_desc", "tri_p1", "tri_p2", "tri_p3",
-        "tri_jpeg", "tri_crop"}
+        "tri_jpeg", "tri_crop", "tri_blind", "tri_wrong", "tri_zoom", "tri_zoomr", "tri_zoomlo"}
 IMG_ONLY = {"tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc"}      # no-ops on text items: skipped there
+RESP_ONLY = {"bin_blind", "tri_blind", "tri_wrong"}                              # need question images + text responses
+ZOOM = {"tri_zoom", "tri_zoomr", "tri_zoomlo"}                                   # need an edit source image
+ZOOM_FRAC, ZOOM_SIDE, ALIGN_TOL = 0.4, 512, 40.0        # window = 40% of width and height; close-ups shown at 512 px max side
+
+
+def applies(c, r):
+    if c in RESP_ONLY:
+        return r["kind"] == "resp" and bool(r["context"])
+    if c in ZOOM:
+        if c == "tri_zoomlo" and r["kind"] == "img" and r["context"]:   # identical to tri_zoom if nothing was downscaled
+            return any(max(Image.open(ROOT / p).size) > MAXSIDE for p in [r["context"][0], *r["cand"]])
+        return r["kind"] == "img" and bool(r["context"])
+    if c in IMG_ONLY:
+        return r["kind"] != "text"
+    return True
+
+
+_BOX = {}
+
+
+def zoom_box(r, random_pos=False):
+    """Normalized (x0, y0, x1, y1). Targeted: window maximizing |A - B| on a
+    128x128 grid (all images resized to the grid, so boxes are in relative coordinates). Uses no label.
+    If both candidates are pixel-aligned with the source (same aspect, mean |edit - source| < ALIGN_TOL): window of
+    largest |A - src| + |B - src| (the edited region). Otherwise (free-form edits, e.g. MMRB2): largest |A - B|."""
+    import numpy as np
+    n = 128; w = int(round(ZOOM_FRAC * n))
+    if random_pos:
+        g = np.random.default_rng(zlib.crc32(r["id"].encode()))
+        x, y = g.integers(0, n - w + 1, 2)
+        return x / n, y / n, (x + w) / n, (y + w) / n
+    if r["id"] not in _BOX:
+        arr = lambda p: np.asarray(Image.open(ROOT / p).convert("RGB").resize((n, n), Image.BILINEAR), dtype=np.float32)
+        A, B = arr(r["cand"][0]), arr(r["cand"][1])
+        sp = r["context"][0]; S0 = arr(sp)
+        ar = lambda p: (lambda z: z[0] / z[1])(Image.open(ROOT / p).size)
+        aligned = all(abs(ar(c) / ar(sp) - 1) < .05 for c in r["cand"]) and \
+            max(np.abs(A - S0).mean(), np.abs(B - S0).mean()) < ALIGN_TOL
+        # aligned (local) edits: where the edits changed the source; otherwise where the two candidates differ
+        d = (np.abs(A - S0) + np.abs(B - S0)).mean(-1) if aligned else np.abs(A - B).mean(-1)
+        I = np.pad(d.cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+        S = I[w:, w:] - I[:-w, w:] - I[w:, :-w] + I[:-w, :-w]          # window sums, shape (n-w+1, n-w+1)
+        y, x = np.unravel_index(int(S.argmax()), S.shape)
+        _BOX[r["id"]] = (x / n, y / n, (x + w) / n, (y + w) / n)
+    return _BOX[r["id"]]
+
+
+def closeup(p, box, lo=False):
+    im = Image.open(ROOT / p if not os.path.isabs(p) else p).convert("RGB")
+    if lo:
+        im = load_img(p)                                  # exactly the image the judge sees
+    W, H = im.size
+    c = im.crop((int(box[0] * W), int(box[1] * H), max(int(box[0] * W) + 1, int(box[2] * W)),
+                 max(int(box[1] * H) + 1, int(box[3] * H))))
+    s = ZOOM_SIDE / max(c.size)
+    return c.resize((max(28, int(c.size[0] * s)), max(28, int(c.size[1] * s))), Image.BICUBIC)
 
 
 def keys_of(c):
@@ -111,17 +173,17 @@ def build(r, cond, order, desc=None):
     ms = {"bin_lowres": LOWRES, "bin_hires": HIRES}.get(cond, MAXSIDE)
     pert = {"tri_jpeg": "jpeg", "tri_crop": "crop"}.get(cond)
     load = lambda p: load_img(p, ms, pert)
-    ask = cond if cond in ("tri", "str7", "tri_p1", "tri_p2", "tri_p3") else "tri" if cond in ("tri_jpeg", "tri_crop") else "bin"
+    ask = cond if cond in ("tri", "str7", "tri_p1", "tri_p2", "tri_p3") else "tri" if cond.startswith("tri") else "bin"
     D = desc.get(r["id"]) if (cond == "bin_desc" and desc is not None) else None
     if cond == "bin_desc" and D is None:
         raise KeyError(f"no description for {r['id']}")
     if r["kind"] in ("resp", "text"):
         if r["kind"] == "text":
             pass
-        elif cond == "bin_blind":
+        elif cond in ("bin_blind", "tri_blind"):
             c.append({"type": "text", "text": "[The image(s) for this question are not shown.]"})
         else:
-            for p in r["context"]:
+            for p in (r["_wrong"] if cond == "tri_wrong" else r["context"]):
                 c.append({"type": "image", "image": load(p)})
         if D is not None and D.get("ctx"):
             c.append({"type": "text", "text": "Detailed description of the image(s):\n" + clip(" ".join(D["ctx"]))})
@@ -149,6 +211,13 @@ def build(r, cond, order, desc=None):
                 c += [{"type": "text", "text": f"Image {'AB'[i]}:"}, {"type": "image", "image": load(r["cand"][k])}]
                 if D is not None:
                     c.append({"type": "text", "text": f"Detailed description of Image {'AB'[i]}: {clip(D['cand'][k])}"})
+            if cond in ZOOM:
+                box = zoom_box(r, random_pos=cond == "tri_zoomr")
+                c.append({"type": "text", "text": "Close-ups of the same region in each image. Source (close-up):"})
+                c.append({"type": "image", "image": closeup(r["context"][0], box, cond == "tri_zoomlo")})
+                for i, k in enumerate(idx):
+                    c += [{"type": "text", "text": f"Image {'AB'[i]} (close-up):"},
+                          {"type": "image", "image": closeup(r["cand"][k], box, cond == "tri_zoomlo")}]
             c.append({"type": "text", "text": ASK_IMG[ask].format(q=q, crit=r["criterion"])})
         else:
             p = r["cand"][0] if order == "A" else r["cand"][1]
@@ -247,6 +316,13 @@ def main():
     jobs = []
     for k, e in enumerate(plan):
         rows = [json.loads(l) for l in open(e["items"])]
+        if "tri_wrong" in conds:      # donor = next item (crc32 order) of the same file with different question images
+            pool = sorted([r for r in rows if r["kind"] == "resp" and r["context"]], key=lambda r: zlib.crc32(r["id"].encode()))
+            for j, r in enumerate(pool):
+                for t in range(1, len(pool)):
+                    dn = pool[(j + t) % len(pool)]
+                    if dn["context"] != r["context"]:
+                        r["_wrong"] = dn["context"]; break
         rows = [r for r in rows if in_shard(r["id"], a.shard, a.nshard)]
         if a.limit:
             rows = rows[:a.limit]
@@ -258,9 +334,7 @@ def main():
                     done.add((d["id"], d["cond"], d["order"]))
         for r in rows:
             for c in conds:
-                if c == "bin_blind" and r["kind"] != "resp":
-                    continue
-                if c in IMG_ONLY and r["kind"] == "text":
+                if not applies(c, r) or (c == "tri_wrong" and "_wrong" not in r):
                     continue
                 if a.text_llm and r["kind"] != "text":
                     continue

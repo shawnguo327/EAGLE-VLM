@@ -20,8 +20,37 @@ datasets: [pp, mmrb2, genai_arena, mllm_judge, editreward, vlrb, mmrb, mjbench, 
 dataset_sets:
   text: [mtbench_human, arena55k]
   sub_aleatoric: [pp, mmrb2, genai_arena, mllm_judge, editreward, imagerewarddb]
+  edit: [genai_arena_edit, mmrb2_edit, editreward]          # edit pairs with a source image (zoom conditions)
+  resp_img: [mllm_judge, vlrb, mmrb, mmrlhf]                # text responses about images (image ablation)
   s32: [genai_arena_s32, mllm_judge_s32, editreward_s32, mmrb2_s32, imagerewarddb_s32, vlrb_s32, mmrb_s32, mjbench_s32]
 phases:   # priority = order on the start command line
+  # --- 2026-11-01 redesign after review (comments/1.md): is "can't tell" evidence the judge did not use? (targeted
+  #     visual re-check vs random / same-pixel controls) and does the verdict use the image at all? (blind / wrong image).
+  #     Human ties ("close") should keep P(T) under both.
+  Z1_zoom_8b:
+    type: judge
+    conds: tri_zoom,tri_zoomr,tri_zoomlo
+    datasets: edit
+    cost: 1.6               # 6 images per call (plan estimate only)
+    models: [qwen3vl8b]
+  Z2_ablate_8b:
+    type: judge
+    conds: tri_blind,tri_wrong
+    datasets: resp_img
+    cost: 0.7
+    models: [qwen3vl8b]
+  Z1_zoom_ivl:
+    type: judge
+    conds: tri_zoom,tri_zoomr,tri_zoomlo,tri_p1
+    datasets: edit
+    cost: 1.4
+    models: [internvl35_8b]
+  Z2_ablate_ivl:
+    type: judge
+    conds: tri_blind,tri_wrong
+    datasets: resp_img
+    cost: 0.7
+    models: [internvl35_8b]
   L1_text:
     type: judge
     conds: bin,tri,str7

@@ -430,7 +430,8 @@ def count_calls(C, name):
                 c = min(c, lim) if lim else c
                 if kind == "judge":
                     for cd in ph["conds"].split(","):
-                        if (cd == "bin_blind" and k != "resp") or (k == "text" and cd in ("tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc")):
+                        if (cd in ("bin_blind", "tri_blind", "tri_wrong") and k != "resp") or (cd.startswith("tri_zoom") and k != "img") \
+                                or (k == "text" and cd in ("tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc")):
                             continue
                         n += 2 * c
                 elif kind == "describe":
