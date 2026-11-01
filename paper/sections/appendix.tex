@@ -1,5 +1,27 @@
 \section{Additional Diagnostic Results}\label{app:more}
-\todo{Tables 2-style for Qwen3.5-9B and Qwen2.5-VL-7B; per-subset breakdowns; tie analysis.}
+\begin{table*}[h]
+\centering\small
+\caption{Diagnostic results for Qwen3.5-9B (columns as in \cref{tab:diag}).}\label{tab:diag35}
+\input{tables/diag_qwen35_9b}
+\end{table*}
+\begin{table*}[h]
+\centering\small
+\caption{Diagnostic results for Qwen2.5-VL-7B (columns as in \cref{tab:diag}).}\label{tab:diag25}
+\input{tables/diag_qwen25vl7b}
+\end{table*}
+\todo{per-subset breakdowns (MMRB2 T2I vs edit; MJ-Bench alignment vs safety; Place Pulse per attribute).}
+
+\section{Escalation Ladders for the Other Judges}\label{app:ladders}
+\begin{table*}[h]
+\centering\small
+\caption{Certified automation (\%) for Qwen3.5-9B as the small judge (columns as in \cref{tab:ladder}).}
+\input{tables/ladder_qwen35_9b}
+\end{table*}
+\begin{table*}[h]
+\centering\small
+\caption{Certified automation (\%) for Qwen2.5-VL-7B as the small judge (columns as in \cref{tab:ladder}).}
+\input{tables/ladder_qwen25vl7b}
+\end{table*}
 
 \section{Prompts}\label{app:prompts}
 \paragraph{Pairwise, response judging.}

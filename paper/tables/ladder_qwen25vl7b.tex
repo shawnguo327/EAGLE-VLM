@@ -1,0 +1,18 @@
+\begin{tabular}{l|ccc|ccc}
+\toprule
+ & \multicolumn{3}{c}{$\alpha=0.20$} & \multicolumn{3}{c}{$\alpha=0.30$}\\
+Dataset ($n$) & P & P$\to$S (fixed) & P$\to$S & P & P$\to$S (fixed) & P$\to$S\\
+\midrule
+VL-RewardBench (1247) & 0 & 0 & 0 & 0 & \textbf{9} & 4\\
+Multimodal RB (1500) & 39 & \textbf{51} & 49 & 88 & \textbf{89} & 87\\
+MM-RLHF-RB (170) & \textbf{6} & 0 & 5 & 23 & \textbf{26} & 23\\
+MLLM-as-a-Judge (1187) & 0 & 0 & 0 & 9 & \textbf{13} & 9\\
+GenAI-Arena (963) & \textbf{40} & 34 & 37 & 76 & \textbf{84} & 80\\
+MJ-Bench (1401) & 85 & \textbf{88} & 86 & \textbf{100} & \textbf{100} & \textbf{100}\\
+MMRB2 (1500) & 0 & 0 & 0 & \textbf{1} & 0 & 1\\
+ImageRewardDB (1500) & 1 & \textbf{7} & 3 & 20 & \textbf{25} & 24\\
+Q-Bench2 (442) & 87 & \textbf{87} & 86 & 100 & \textbf{100} & 100\\
+EditReward-Bench (115) & 0 & 0 & 0 & \textbf{5} & 2 & 0\\
+Place Pulse 2.0 (1500) & \textbf{1} & 0 & 1 & \textbf{36} & 29 & 27\\
+\bottomrule
+\end{tabular}

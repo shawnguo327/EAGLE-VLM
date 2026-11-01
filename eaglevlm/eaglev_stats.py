@@ -236,39 +236,64 @@ def ppi_bt_tuned(pairs, yhat, y, labelled, pi, n_items, lams=(0, .25, .5, .75, 1
     return ppi_bt(pairs, yhat, y, labelled, pi, n_items, best[1]), best[1]
 
 
-def ladder_multi(rungs, alpha, delta=0.1, seed=0, n_splits=50, costs=None):
+def _ladder_apply(C, E, idx, t):
+    """Route items idx through rungs with thresholds t; return (errors, decided, undecided mask, per-rung accept masks)."""
+    undecided = np.ones(len(idx), bool); k = m = 0; accs = []
+    for r in range(len(C)):
+        acc = undecided & (C[r][idx] >= t[r]); k += int(E[r][idx][acc].sum()); m += int(acc.sum())
+        undecided &= ~acc; accs.append(acc)
+    return k, m, undecided, accs
+
+
+def ladder_multi(rungs, alpha, delta=0.1, seed=0, n_splits=50, costs=None, rhos=(0.0, 0.5, 1.0, 2.0)):
     """General escalation ladder. rungs: list of (conf, err) arrays aligned over the same items, in escalation order;
-    a final human rung (error 0) is implicit. Thresholds follow one equal-quantile path across all rungs
-    (strict -> lenient) and are chosen by fixed-sequence testing on the Clopper-Pearson bound of the error among
-    machine-decided items. costs[r] = cost of *reaching* rung r (paid by every item that gets there); human cost
-    is costs[-1] if len(costs) == len(rungs) + 1. Returns mean automation, per-rung shares, risk, violation, cost."""
+    a final human rung (error 0) is implicit. A *path family* is indexed by a mixing ratio rho_r >= 0 for every rung
+    after the first: at step q of the path, rung 0 accepts its top (1-q) quantile and rung r its top min(1, rho_r(1-q))
+    quantile (rho_r = 0 switches rung r off). Every path is walked by fixed-sequence testing on the Clopper-Pearson
+    bound of the error among machine-decided items at level delta/|family| (Bonferroni over paths, so the guarantee
+    holds for whichever path is then picked); the path with the lowest calibration cost (or highest automation) wins.
+    costs[r] = cost of *reaching* rung r; human cost is costs[-1] if len(costs) == len(rungs) + 1.
+    Returns mean automation, per-rung shares, risk, violation rate, cost, and how often each rung was switched on."""
+    import itertools
     R = len(rungs); n = len(rungs[0][0]); rng = np.random.default_rng(seed)
     C = [np.asarray(c, float) for c, _ in rungs]; E = [np.asarray(e, int) for _, e in rungs]
+    family = [(1.0,) + combo for combo in itertools.product(rhos, repeat=R - 1)]
+    d_path = delta / len(family)
+    hc = costs[R] if costs is not None and len(costs) > R else 0.0
+
+    def mean_cost(undecided, accs):
+        if costs is None:
+            return -(1 - undecided.mean())
+        reach = np.ones(len(undecided), bool); c = np.zeros(len(undecided))
+        for r in range(R):
+            c += reach * costs[r]; reach &= ~accs[r]
+        return float((c + undecided * hc).mean())
+
     res = collections.defaultdict(list)
     for _ in range(n_splits):
         p = rng.permutation(n); cal, te = p[: n // 2], p[n // 2:]
-        qs = 1 - np.linspace(start_cov(len(cal), alpha, delta), 1.0, 39)
-        chosen = [np.inf] * R
-        for q in qs:
-            t = [np.quantile(C[r][cal], q) for r in range(R)]
-            undecided = np.ones(len(cal), bool); k = m = 0
-            for r in range(R):
-                acc = undecided & (C[r][cal] >= t[r]); k += int(E[r][cal][acc].sum()); m += int(acc.sum()); undecided &= ~acc
-            if m > 0 and cp_upper(k, m, delta) <= alpha:
-                chosen = t
-            else:
-                break
-        undecided = np.ones(len(te), bool); k = m = 0; cost = np.zeros(len(te)); shares = []
-        for r in range(R):
-            if costs is not None:
-                cost += undecided * costs[r]
-            acc = undecided & (C[r][te] >= chosen[r]); k += int(E[r][te][acc].sum()); m += int(acc.sum())
-            undecided &= ~acc; shares.append(acc.mean())
-        if costs is not None and len(costs) > R:
-            cost += undecided * costs[R]
+        qs = 1 - np.linspace(start_cov(len(cal), alpha, d_path), 1.0, 39)
+        best, best_obj = [np.inf] * R, np.inf
+        for rho in family:
+            chosen = None
+            for q in qs:
+                t = [np.quantile(C[r][cal], max(0.0, 1 - rho[r] * (1 - q))) if rho[r] > 0 else np.inf for r in range(R)]
+                k, m, _, _ = _ladder_apply(C, E, cal, t)
+                if m > 0 and cp_upper(k, m, d_path) <= alpha:
+                    chosen = t
+                else:
+                    break
+            if chosen is None:
+                continue
+            _, _, und, accs = _ladder_apply(C, E, cal, chosen)
+            obj = mean_cost(und, accs)
+            if obj < best_obj:
+                best, best_obj = chosen, obj
+        k, m, undecided, accs = _ladder_apply(C, E, te, best)
         risk = k / m if m else 0.0
         res["auto"].append(1 - undecided.mean()); res["risk"].append(risk); res["viol"].append(risk > alpha)
-        res["cost"].append(cost.mean())
-        for r, s in enumerate(shares):
-            res[f"share_r{r}"].append(s)
+        cst = mean_cost(undecided, accs)
+        res["cost"].append(cst if costs is not None else float(R + hc))
+        for r in range(R):
+            res[f"share_r{r}"].append(accs[r].mean()); res[f"on_r{r}"].append(float(np.isfinite(best[r])))
     return {k: float(np.mean(v)) for k, v in res.items()}

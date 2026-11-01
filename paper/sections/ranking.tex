@@ -29,3 +29,18 @@ On Place Pulse, $\eta$ cannot be estimated from repeat votes, because they are d
 After deduplication, we fit an L2-regularised Bradley--Terry model with a left-position term on 90\% of each attribute's votes. On the held-out 10\% it explains only 2.2\% (boring) to 9.8\% (beautiful) of vote variance, with accuracy .56--.63.
 With 2--4 votes per image, Bradley--Terry underfits, so these figures are loose lower bounds. Still, the VLM judges' .645 accuracy against single votes is already at this human-fitted level.
 The consequence: on Place Pulse, PPI at the level of single votes can save only a few percent of human labels. The value of a judge lies in \emph{image}-level scores, where votes are aggregated and the predictable share is much larger.
+
+\paragraph{Leaderboards on GenAI-Arena.}
+We test this on the two GenAI-Arena subsets we judged: text-to-image generation (21 models, 750 battles) and image editing (10 models, 750 battles). The reference leaderboard is a BT fit on all human votes in the subset (ties count as half a win).
+For a budget $b$ of human votes we compare three estimators over 100 random draws: BT on the $b$ human votes alone, PPI with uniform labelling, and PPI with confidence-routed labelling. PPI uses the judge's soft label $\pbar$ on every battle, and $\lambda$ is tuned by bootstrap.
+\Cref{tab:ppi} reports the Kendall $\tau$ between each estimate and the reference.
+\begin{table*}[t]
+\centering\small
+\caption{GenAI-Arena leaderboards: Kendall $\tau$ to the all-votes reference ranking (mean over 100 draws; $K$ = number of models). ``Judge only'' fits BT to judge soft labels alone and has no validity guarantee. PPI-r: confidence-routed labelling.}\label{tab:ppi}
+\input{tables/ppi_genai_arena}
+\end{table*}
+On generation, where 21 models share 750 battles, uniform PPI with any of the three judges raises $\tau$ from .31 to .34--.38 at 5\% human votes, from .41 to .49--.51 at 10\%, and from .57 to .61--.63 at 20\%. PPI at 10\% thus matches human-only at roughly 15\%.
+On editing, with only 10 models, human votes alone already rank well; PPI helps slightly at 5\% with the two stronger judges and is neutral or slightly worse at 20\%.
+Two results run against our initial design.
+First, \emph{confidence routing does not help}: it is roughly tied with uniform labelling on generation and clearly worse on editing (e.g.\ .49 vs .60 at 10\% for Qwen3-VL-8B). With an error AUROC near .7, routing concentrates human labels without targeting the judge's errors well, while the inverse-propensity weights raise variance.
+Second, on generation the BT fit to judge labels alone reaches $\tau=.56$ with every judge, above human-only at 10\% (.41), although each judge agrees with only 63--65\% of the strict human votes there. Judge-only rankings carry no guarantee and their bias is unknown without human labels, but they show that per-battle accuracy understates a judge's value for ranking.

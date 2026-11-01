@@ -1,13 +1,13 @@
 \section{Does Order-Symmetric Confidence Transfer to Vision?}\label{sec:diagnostic}
 
 \paragraph{Benchmarks.}
-\Cref{tab:data} lists the \TBD{ten} public judge benchmarks we converted to a common pairwise format. We subsample to at most 1{,}500 pairs per dataset, stratified by subset.
+\Cref{tab:data} lists the ten public judge benchmarks we converted to a common pairwise format. We subsample to at most 1{,}500 pairs per dataset, stratified by subset.
 They cover \emph{response judging}, where the candidates are text answers about images (VL-RewardBench, Multimodal RewardBench, MM-RLHF-RewardBench, MLLM-as-a-Judge pairwise), and \emph{image judging} (GenAI-Arena, MJ-Bench, MMRB2 text-to-image and editing, ImageRewardDB, Q-Bench2, EditReward-Bench).
-GenAI-Arena, MLLM-as-a-Judge and EditReward-Bench contain human ties (\TBD{868} in total), which we use to study tie behaviour.
+GenAI-Arena, MLLM-as-a-Judge and EditReward-Bench contain human ties (868 in total), which we use to study tie behaviour.
 Place Pulse 2.0 contributes 1{,}500 strict votes and 360 tie votes across six attributes.
 
 \paragraph{Judges.}
-Qwen3-VL-8B-Instruct \citep{bai2025qwen3vl}, Qwen3.5-9B (natively multimodal) and Qwen2.5-VL-7B-Instruct \citep{bai2025qwen25vl}, run in non-thinking mode with first-token readout. \todo{add one API judge (GPT-5-mini or Gemini Flash) on a 300-pair subset per dataset as the ``stronger judge'' rung.}
+Qwen3-VL-8B-Instruct \citep{bai2025qwen3vl}, Qwen3.5-9B (natively multimodal) and Qwen2.5-VL-7B-Instruct \citep{bai2025qwen25vl}, run in non-thinking mode with first-token readout. Each judge sees every pair in both orders (pairwise) and scores each candidate on a 1--9 scale (pointwise). Qwen3-VL-32B-Instruct, run pairwise only, is the stronger-judge rung in \cref{sec:experiments}.
 
 \begin{table}[t]
 \centering\small
@@ -26,7 +26,7 @@ MMRB2 (T2I, edit) \citep{hu2025multimodal} & gen./edited image & 1{,}500 (2{,}00
 ImageRewardDB (test) & T2I image & 1{,}500 (6{,}399) & 0 & expert rank\\
 Q-Bench2 (pair) & image quality & 442 (1{,}000) & 0 & expert\\
 EditReward-Bench (2-pair) & edited image & 133 (133) & 18 & human\\
-Place Pulse 2.0 \citep{dubey2016deep} & street view & 1{,}500 (1.34M) & 203k (pool) & crowd vote\\
+Place Pulse 2.0 \citep{dubey2016deep} & street view & 1{,}860 (1.54M) & 360 (203k) & crowd vote\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -34,42 +34,29 @@ Place Pulse 2.0 \citep{dubey2016deep} & street view & 1{,}500 (1.34M) & 203k (po
 \paragraph{Metrics.}
 We report accuracy on strict pairs, swap consistency, AUROC of each confidence score for predicting a correct verdict, accuracy by $\dpconf$ quintile, the saturation share $\Pr[\dpconf\ge .95]$, and expected calibration error of $(1+\dpconf)/2$ as a probability of being correct.
 
-\begin{table}[t]
+\begin{table*}[t]
 \centering\small
-\caption{Diagnostic results for Qwen3-VL-8B (other judges in \cref{app:more}). Q1/Q5: accuracy in the lowest/highest $\dpconf$ quintile.}\label{tab:diag}
-\begin{tabular}{lcccccccc}
-\toprule
-Dataset & Acc & Swap & Q1 & Q5 & AUROC $\dpconf$ & AUROC $\lambda$ & Sat. & ECE\\
-\midrule
-VL-RewardBench & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-Multimodal RB & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-MM-RLHF-RB & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-MLLM-as-a-Judge & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-GenAI-Arena & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-MJ-Bench & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-MMRB2 & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-ImageRewardDB & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-Q-Bench2 & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-EditReward-Bench & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-Place Pulse 2.0 & .645 & .811 & .523 & .807 & .639 & .640 & .667 & .253\\
-\bottomrule
-\end{tabular}
-\end{table}
+\caption{Diagnostic results for Qwen3-VL-8B (Qwen3.5-9B and Qwen2.5-VL-7B in \cref{app:more}). $n$: strict pairs. Q1/Q5: accuracy in the lowest/highest $\dpconf$ quintile. Sat.: share of pairs with $\dpconf\ge.95$. ECE: of $(1+\dpconf)/2$ read as the probability of a correct verdict.}\label{tab:diag}
+\input{tables/diag_qwen3vl8b}
+\end{table*}
 
-\paragraph{Finding 1: confidence ranks errors, weakly.}
-On Place Pulse, accuracy rises from .51--.57 in the lowest $\dpconf$ quintile to .78--.81 in the highest for all three judges. AUROC is .60--.64.
-\TBD{Benchmarks: range of AUROC; expected higher on response judging with verified labels.}
+\paragraph{Finding 1: confidence ranks errors, weakly, and equally for responses and images.}
+Across the 30 benchmark--judge cells, pairwise accuracy ranges from .59 to .89 (median .72) and the AUROC of $\dpconf$ for predicting a correct verdict from .57 to .77 (median .66). Accuracy in the most confident quintile (.70--1.00) is always above that in the least confident quintile (.50--.76).
+We expected confidence to work better when judging text responses, where labels are often verifiable, than when judging generated images. It does not: for every judge, mean AUROC is .65--.68 on the four response benchmarks and .65--.68 on the six image benchmarks.
+The hard cases are text-to-image and editing preferences between close candidates (MMRB2, ImageRewardDB), with accuracy .59--.64 and AUROC .57--.62 for all three judges. On Place Pulse AUROC is .60--.64.
 
-\paragraph{Finding 2: saturation is judge-specific, and log-odds does not fix it.}
-The share of pairs with $\dpconf\ge.95$ is 67\% for Qwen3-VL-8B, 27\% for Qwen3.5-9B and 11\% for Qwen2.5-VL-7B. The ECE of $(1+\dpconf)/2$ follows the same order: .25, .20, .11.
-Only 70\% of Qwen3-VL-8B's saturated pairs are correct.
-Reading the same two calls as order-averaged log-odds $\lambda$ does still rank errors \emph{inside} the saturated mass (AUROC .62 for Qwen3-VL-8B). However, $\dpconf$ already orders these pairs almost identically, so overall AUROC (.640 vs .639) and certified coverage do not change.
-Saturation is therefore a problem of \emph{scale} (calibration), not of \emph{ranking}. It matters for any use that reads $(1+\dpconf)/2$ as a probability, such as soft labels for PPI or DPO, and not for threshold-based selection.
+\paragraph{Finding 2: saturation is judge-specific; log-odds helps only where it bites.}
+The median share of benchmark pairs with $\dpconf\ge.95$ is 54\% for Qwen3-VL-8B, 24\% for Qwen3.5-9B and 11\% for Qwen2.5-VL-7B (Place Pulse: 67\%, 27\%, 11\%). The median ECE of $(1+\dpconf)/2$ follows the same order: .14, .08, .07.
+Saturation does not mean the verdicts are right: only 70\% of Qwen3-VL-8B's saturated Place Pulse pairs are correct.
+Reading the same two calls as order-averaged log-odds $\lambda$ never lowers AUROC and raises it by more than .01 in 10 of 33 cells. The gain in \emph{certified coverage} is concentrated where saturation is heaviest. For Qwen3-VL-8B at $\alpha=.30$, coverage rises from 50\% to 90\% on VL-RewardBench and from 61\% to 85\% on MLLM-as-a-Judge. Elsewhere the two scores certify similar sets, and $\lambda$ is worse in a minority of cells (e.g.\ Qwen3.5-9B on Q-Bench2).
+Saturation is therefore mainly a problem of \emph{scale}. It matters for any use that reads $(1+\dpconf)/2$ as a probability, such as soft labels for PPI or DPO, and for thresholding only when most pairs sit at the ceiling. We use $\lambda$ as the pairwise confidence from here on.
 
 \paragraph{Finding 3: confidence barely detects human ties.}
 Humans mark 13\% of Place Pulse comparisons as ``equal''. Low $\dpconf$ separates these tie votes from strict votes with AUROC .54 for all three judges, and when offered a tie option the judges never choose it.
-\TBD{GenAI-Arena / MLLM-as-a-Judge tie AUROC.}
+The benchmarks with human ties show the same picture: AUROC .54--.58 on GenAI-Arena and MLLM-as-a-Judge, and .63--.67 on the 18 ties of EditReward-Bench.
 \emph{Note on human disagreement.} We first planned to measure human disagreement on Place Pulse pairs with several votes, as in earlier work. An audit of the vote timestamps (\cref{app:ppaudit}) shows this is not possible. Of 18{,}630 consecutive repeat votes on the same pair, 81\% arrive within 10 seconds with the same left/right layout and agree 91\% of the time, so they are duplicate submissions. Only 98 repeats are a day or more apart, and those agree only 61\% of the time. None of the 720 ``multi-vote'' pairs in our pilot has two independent votes after deduplication.
 
-\paragraph{Finding 4: pointwise is a different, not worse, channel.}
-On Place Pulse, pointwise scoring alone (.650--.666) matches or beats pairwise (.645--.649). The two protocols disagree on 15--17\% of pairs. On those pairs pointwise is right 50--57\% of the time, so a coin-flip set is being exposed rather than corrected. Errors are correlated across judges (.65--.73). A second protocol is therefore a more independent check than a second VLM; this motivates the ladder in \cref{sec:method}.
+\paragraph{Finding 4: pointwise is a weaker, partly independent channel.}
+On Place Pulse, pointwise scoring alone (.650--.666) matches or beats pairwise (.645--.649). On the benchmarks it is usually weaker, by up to 8 points (e.g.\ MJ-Bench .72 vs .79 for Qwen3-VL-8B, Multimodal RB .71 vs .75).
+The two protocols disagree on 15--17\% of Place Pulse pairs, and there pointwise is right 50--57\% of the time, so a coin-flip set is exposed rather than corrected. Errors are correlated across judges (.65--.73 on Place Pulse).
+Whether a second protocol is worth an escalation step is therefore an empirical question per dataset, which \cref{sec:experiments} answers.

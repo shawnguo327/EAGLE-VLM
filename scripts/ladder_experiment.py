@@ -26,17 +26,18 @@ for ds in a.ds.split(","):
     P = (np.abs([small[i]["lo"] for i in ids]), ((np.array([small[i]["lo"] for i in ids]) > 0).astype(int) != y).astype(int))
     ed = np.array([small[i]["ed"] for i in ids])
     S = (np.abs(ed), np.where(ed == 0, 1, ((ed > 0).astype(int) != y).astype(int)))
-    configs = {"P": ([P], [2]), "P>S": ([P, S], [2, 2])}
+    FIX, ADA = (1.0,), (0.0, 1.0)
+    configs = {"P": ([P], [2], FIX), "P>S fix": ([P, S], [2, 2], FIX), "P>S": ([P, S], [2, 2], ADA)}
     if large:
         lo = np.array([large[i]["lo"] for i in ids])
         L = (np.abs(lo), ((lo > 0).astype(int) != y).astype(int))
-        configs.update({"P>L": ([P, L], [2, 8]), "P>S>L": ([P, S, L], [2, 2, 8]), "L": ([L], [8])})
+        configs.update({"P>L": ([P, L], [2, 8], ADA), "P>S>L": ([P, S, L], [2, 2, 8], ADA), "L": ([L], [8], FIX)})
     res = {"n": len(ids), "acc": {"P": float(1 - P[1].mean()), "S": float(1 - S[1].mean())}}
     if large:
         res["acc"]["L"] = float(1 - L[1].mean())
     for al in map(float, a.alphas.split(",")):
-        for name, (rungs, costs) in configs.items():
-            r = ladder_multi(rungs, al, costs=costs + [a.human_cost])
+        for name, (rungs, costs, rhos) in configs.items():
+            r = ladder_multi(rungs, al, costs=costs + [a.human_cost], rhos=rhos)
             res[f"{name}@{al}"] = r
     out[ds] = res
     print(f"\n{ds} n={len(ids)} acc={ {k: round(v, 3) for k, v in res['acc'].items()} }")
