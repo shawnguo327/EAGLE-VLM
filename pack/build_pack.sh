@@ -12,7 +12,7 @@ PACK=${1:-/media/shawn/C/papers/VLM/eaglev_pack}
 mkdir -p $PACK/data/items $PACK/data/images $PACK/code $PACK/models $PACK/runs $PACK/return
 rm -rf $PACK/code/*; git -C $REPO archive HEAD | tar -x -C $PACK/code
 echo "code: $(git -C $REPO log --oneline -1)" > $PACK/VERSION
-cp $REPO/pack/run.sh $REPO/pack/setup_env.sh $REPO/pack/requirements.txt $REPO/pack/README.md $PACK/
+cp $REPO/pack/run.sh $REPO/pack/setup_env.sh $REPO/pack/requirements.txt $REPO/pack/README.md $REPO/pack/config.pro6000.yaml $PACK/
 [ -f $PACK/config.yaml ] && echo "keeping existing $PACK/config.yaml (delete it to take the repo version)" || cp $REPO/pack/config.yaml $PACK/config.yaml
 chmod +x $PACK/run.sh $PACK/setup_env.sh
 # images: hard links when on the same filesystem (no extra space); identical names in both roots are the same image
