@@ -21,7 +21,7 @@ ROOT = pathlib.Path(os.environ.get("EAGLEVLM_DATA", os.getcwd()))  # data dir: i
 PP = pathlib.Path("/media/shawn/C/papers/VLM/place-pulse-2.0/models")
 MODELS = {"qwen3vl8b": PP / "Qwen3-VL-8B-Instruct", "qwen35_9b": PP / "Qwen3.5-9B",
           "qwen25vl7b": pathlib.Path("/media/shawn/C/nyserver-files/mntstorage/models/Qwen2.5-VL-7B-Instruct"),
-          "qwen3vl32b": PP / "Qwen3-VL-32B-Instruct"}
+          "qwen3vl32b": PP / "Qwen3-VL-32B-Instruct", "internvl35_8b": PP / "InternVL3_5-8B-HF"}
 MAXSIDE = 768
 LOWRES = 112
 MAXCHARS = 4000
