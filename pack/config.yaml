@@ -65,6 +65,7 @@ phases:
     type: judge
     conds: bin_hires,tri
     tiling: true
+    bs: 4                     # 1536 px + InternVL tiling: ~10x the visual tokens of the default
     models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
     # note: with tiling on, InternVL's tri here is also tiled; compare with tri from phase A for the evidence effect
 

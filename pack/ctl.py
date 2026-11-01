@@ -181,7 +181,7 @@ def daemon(C, phases):
                     os.killpg(pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                t["state"] = "pending"; t.pop("proc", None)
+                t["state"] = "pending"; t["devices"] = []; t.pop("proc", None)
             save(); return
 
 
