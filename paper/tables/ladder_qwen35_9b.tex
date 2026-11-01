@@ -1,18 +1,18 @@
-\begin{tabular}{l|ccc|ccc}
+\begin{tabular}{l|cccccc|cccccc}
 \toprule
- & \multicolumn{3}{c}{$\alpha=0.20$} & \multicolumn{3}{c}{$\alpha=0.30$}\\
-Dataset ($n$) & P & P$\to$S (fixed) & P$\to$S & P & P$\to$S (fixed) & P$\to$S\\
+ & \multicolumn{6}{c}{$\alpha=0.20$} & \multicolumn{6}{c}{$\alpha=0.30$}\\
+Dataset ($n$) & P & P$\to$S (fixed) & P$\to$S & L & P$\to$L & P$\to$S$\to$L & P & P$\to$S (fixed) & P$\to$S & L & P$\to$L & P$\to$S$\to$L\\
 \midrule
-VL-RewardBench (1247) & \textbf{68} & 65 & 60 & 100 & \textbf{100} & 100\\
-Multimodal RB (1500) & 86 & \textbf{90} & 87 & \textbf{100} & \textbf{100} & \textbf{100}\\
-MM-RLHF-RB (170) & \textbf{43} & 36 & 27 & \textbf{97} & 89 & 93\\
-MLLM-as-a-Judge (1187) & 0 & \textbf{2} & 0 & 25 & \textbf{55} & 40\\
-GenAI-Arena (963) & \textbf{60} & 53 & 57 & 97 & \textbf{98} & 97\\
-MJ-Bench (1401) & \textbf{91} & 91 & 90 & 100 & \textbf{100} & 100\\
-MMRB2 (1500) & \textbf{12} & 7 & 5 & \textbf{55} & 54 & 52\\
-ImageRewardDB (1500) & \textbf{3} & 0 & 1 & \textbf{25} & 15 & 21\\
-Q-Bench2 (442) & 10 & 44 & \textbf{46} & 24 & \textbf{82} & 74\\
-EditReward-Bench (115) & 0 & \textbf{1} & 0 & 7 & \textbf{13} & 12\\
-Place Pulse 2.0 (1500) & 3 & \textbf{3} & 2 & 31 & \textbf{43} & 37\\
+VL-RewardBench (700) & 31 & \textbf{45} & 33 & 13 & 28 & 41 & \textbf{100} & 100 & 99 & 72 & 96 & 100\\
+Multimodal RB (700) & 80 & \textbf{86} & 82 & 67 & 85 & 86 & 100 & \textbf{100} & 100 & 100 & 100 & 100\\
+MM-RLHF-RB (170) & 43 & 36 & 27 & 29 & \textbf{44} & 36 & \textbf{97} & 89 & 93 & 86 & 92 & 94\\
+MLLM-as-a-Judge (551) & 2 & \textbf{5} & 2 & 2 & 5 & 3 & 14 & 29 & 22 & 19 & 42 & \textbf{43}\\
+GenAI-Arena (457) & 47 & 38 & 42 & 27 & \textbf{48} & 44 & 88 & \textbf{89} & 87 & 66 & 85 & 84\\
+MJ-Bench (700) & \textbf{94} & 92 & 91 & 85 & 92 & 89 & 100 & \textbf{100} & 100 & 100 & 100 & 100\\
+MMRB2 (700) & 4 & \textbf{8} & 6 & 0 & 2 & 6 & 40 & \textbf{49} & 41 & 7 & 28 & 33\\
+ImageRewardDB (700) & 0 & 0 & 0 & \textbf{1} & 0 & 0 & 0 & 2 & 1 & \textbf{12} & 2 & 1\\
+Q-Bench2 (442) & 10 & 44 & 46 & 30 & 46 & \textbf{67} & 24 & 82 & 74 & 56 & 78 & \textbf{96}\\
+EditReward-Bench (115) & 0 & \textbf{1} & 0 & 0 & 0 & 0 & 7 & \textbf{13} & 12 & 1 & 3 & 8\\
+Place Pulse 2.0 (1500) & 3 & \textbf{3} & 2 & 2 & 2 & 2 & 31 & \textbf{43} & 37 & 39 & 37 & 36\\
 \bottomrule
 \end{tabular}

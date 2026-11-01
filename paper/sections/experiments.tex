@@ -1,37 +1,57 @@
-\section{Experiments}\label{sec:experiments}
+\section{Experiments: When Does Escalation Pay?}\label{sec:experiments}
 
 \paragraph{Protocol.}
-Each experiment uses 50 random 50/50 calibration/test splits per dataset and judge. We use $\delta=0.1$ and $\alpha\in\{.05,.10,.15,.20,.25\}$, chosen per dataset relative to base error \todo{fix the $\alpha$ grid once base accuracies are known; $\alpha$ below the error of the best quintile is unattainable}.
-We report automation (the share of pairs decided without a human), realised test risk, and the violation frequency.
+Rungs: P = the small judge pairwise with confidence $|\lambda|$; S = the same judge pointwise with confidence $|m|$ (the gap between the expected 1--9 scores); L = Qwen3-VL-32B pairwise with its own $|\lambda|$; H = a human.
+Cost units: one 7--9B forward pass = 1, one 32B pass = 4, one human label = 100. P and S each cost two passes; L costs eight.
+Because the 32B judge is slow, we run it on a stratified subset of at most 700 pairs per benchmark (all 1{,}860 Place Pulse pairs), and all ladder results use that subset.
+Each configuration is calibrated with \cref{alg:cal} on a random half of the strict pairs and evaluated on the other half, over 50 splits, with $\delta=0.1$.
+``Fixed'' ladders use the single equal-quantile path; adaptive ladders use the on/off path family of \cref{sec:method} (2 paths for P$\to$S and P$\to$L, 4 for P$\to$S$\to$L, which therefore contains the other three as special cases).
+We report automation, the share of test pairs decided without a human. Mean test risk stays below $\alpha$ for every configuration and dataset (maximum .17 at $\alpha=.20$ and .26 at $\alpha=.30$).
 
 \paragraph{Baselines.}
-(a) Pairwise-only with $\dpconf$, which is SCOPE \citep{badshah2026scope} with its bidirectional entropy;
-(b) pairwise-only with $\lambda$;
-(c) hard order-consistency filtering \citep{seo2026when};
-(d) a Trust-or-Escalate-style model cascade (Qwen2.5-VL-7B $\rightarrow$ Qwen3-VL-8B $\rightarrow$ API) \citep{jung2024trust};
-(e) \eaglev{} (pairwise $\rightarrow$ pointwise $\rightarrow$ [API] $\rightarrow$ human).
-Optional: Bayesian prompt ensembles \citep{slyman2025calibrating} as an alternative confidence; multi-VLM consensus entropy \citep{zhang2025consensus}.
+P alone is SCOPE \citep{badshah2026scope} with $\lambda$ in place of the equivalent entropy (\cref{sec:diagnostic}); L alone is SCOPE with the stronger judge; P$\to$L is a two-model Trust-or-Escalate cascade \citep{jung2024trust}.
+We also report order-consistency filtering \citep{seo2026when}, which keeps only pairs whose verdict survives the swap. It has no risk target: it keeps 33--94\% of pairs, but the error among kept pairs is still .08--.38, for example .31 instead of .39 on MMRB2 for Qwen3-VL-8B. As a selection rule it leaves most of the error in place, and it cannot be tuned to a target.
 
-\paragraph{Synthetic sanity check.}
-With a simulated over-confident judge (accuracy .71, 29\% of pairs saturated), the pairwise-only threshold keeps true risk below $\alpha$ in at least 88\% of 100 runs (target 90\%; $n_{\rm cal}=1{,}500$). It certifies 8\%/32\%/55\% coverage at $\alpha=.10/.15/.20$, and the two-rung ladder raises automation at $\alpha=.20$ from 48\% to 58\% \todo{replace with real-data results; move synthetic to appendix}.
+\begin{table*}[t]
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\caption{Certified automation (\%) with Qwen3-VL-8B as the small judge (mean over 50 splits; ladder subset, $n$ = strict pairs). Bold: best per row and $\alpha$. P: pairwise; S: pointwise; L: Qwen3-VL-32B pairwise. P$\to$S (fixed) uses a single path; the others choose adaptively among rung subsets. Other small judges in \cref{app:ladders}.}\label{tab:ladder}
+\input{tables/ladder_qwen3vl8b}
+\end{table*}
 
 \begin{table}[t]
 \centering\small
-\caption{Automation (\%) at certified risk $\alpha$ (mean over 50 splits). Higher is better; every method meets the risk target.}\label{tab:main}
-\begin{tabular}{lccccc}
+\caption{Mean certified automation (\%) and mean cost per pair, over the 11 datasets. Human label = 100; ``all to humans'' would cost 100 + the cost of the first rung.}\label{tab:ladder-mean}
+\begin{tabular}{llcccccc}
 \toprule
-Dataset ($\alpha$) & SCOPE ($\dpconf$) & $\lambda$ & Order filter & Model cascade & \eaglev{}\\
+Small judge & $\alpha$ & P & P$\to$S (fix) & P$\to$S & L & P$\to$L & P$\to$S$\to$L\\
 \midrule
-VL-RewardBench & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-GenAI-Arena & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-MMRB2 & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
-\ldots & & & & & \\
-Place Pulse 2.0 & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+Qwen3-VL-8B & .20 & 24 & 26 & 26 & 23 & 27 & \textbf{27}\\
+            & .30 & 53 & \textbf{57} & 54 & 51 & 55 & 55\\
+            & cost@.30 & 49.2 & \textbf{45.9} & 49.5 & 57.3 & 50.4 & 52.3\\
+Qwen3.5-9B  & .20 & 28 & 33 & 30 & 23 & 32 & \textbf{34}\\
+            & .30 & 55 & \textbf{63} & 61 & 51 & 60 & \textbf{63}\\
+            & cost@.30 & 47.4 & \textbf{39.5} & 42.3 & 57.3 & 45.1 & 42.9\\
+Qwen2.5-VL-7B & .20 & 22 & 23 & 23 & 23 & \textbf{26} & 25\\
+            & .30 & 38 & 39 & 37 & \textbf{51} & 47 & 45\\
+            & cost@.30 & 63.9 & 64.7 & 66.3 & \textbf{57.3} & 59.8 & 62.8\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Rankings.}
-(i) \emph{Place Pulse:} we use the per-image TrueSkill/BT scores fitted on all 1.34M votes as the reference and estimate them from a budget of $B\in\{1,2,5,10\}\%$ human votes plus judge labels on the rest. We report the mean absolute error of $\theta$, the Spearman correlation with the reference, and CI coverage, comparing human-only, PPI with uniform labelling, and PPI with confidence-routed labelling.
-(ii) \emph{GenAI-Arena:} model-level BT/Davidson leaderboards from the public votes, against K-Sort Eval-style heuristic correction \citep{li2026ksort}.
-\todo{implement Davidson PPI; the BT version is in \texttt{eaglev\_stats.py}.}
+\paragraph{Result 1: no rung order dominates.}
+\Cref{tab:ladder,tab:ladder-mean} show that the best configuration changes with the dataset, the judge and $\alpha$.
+Averaged over datasets, the best escalating configuration adds 3--9 points of automation over pairwise-only selection and lowers mean cost (e.g.\ 47.4 $\to$ 39.5 for Qwen3.5-9B at $\alpha=.30$). The largest single gains are large: for Qwen3-VL-8B on Multimodal RB at $\alpha=.20$, automation rises from 24\% to 74--76\%; for Qwen3.5-9B on Q-Bench2 at $\alpha=.30$, from 24\% to 96\%.
+The pointwise rung helps on Multimodal RB, VL-RewardBench, Q-Bench2 and EditReward-Bench, and, on the fixed path, with the Qwen3 judges on Place Pulse. It hurts on MJ-Bench and GenAI-Arena, where pointwise accuracy is 2--5 points below pairwise. The fixed P$\to$S path loses most there (MJ-Bench at $\alpha=.10$: 42\% $\to$ 8\% for Qwen3-VL-8B); the adaptive path recovers most of it (40\%).
+
+\paragraph{Result 2: a 4$\times$ larger judge is not a better judge here.}
+Qwen3-VL-32B is more accurate than the 8B model on only some datasets (MLLM-as-a-Judge .73 vs .70, Multimodal RB .80 vs .77) and less accurate on others (MMRB2 .59 vs .60, Q-Bench2 .85 vs .89); on Place Pulse it reaches .661.
+As a stand-alone selective judge it is the best choice only for the weakest small judge (Qwen2.5-VL-7B, 51\% vs 38\% automation at $\alpha=.30$). For the Qwen3 judges it certifies less than the small judge's own pairwise rung, at higher cost.
+As a second rung it helps where its errors differ from the small judge's, notably MLLM-as-a-Judge (18\% $\to$ 32\% for Qwen3-VL-8B at $\alpha=.30$).
+
+\paragraph{Result 3: certification is data-hungry.}
+The subset results show how strongly automation depends on calibration size. On Multimodal RB at $\alpha=.20$, pairwise-only automation for Qwen3-VL-8B is 60\% with 750 calibration pairs (full data, \cref{app:ladders}) but 24\% with 350. Because the Clopper--Pearson bound tightens slowly, a practitioner who can afford a few hundred more calibration labels may gain more than from any extra rung.
+
+\paragraph{Result 4: the hard image-preference sets certify almost nothing.}
+On ImageRewardDB no configuration exceeds 17\% automation at $\alpha=.30$; on MMRB2 only Qwen3.5-9B certifies a sizeable share (up to 49\%). At $\alpha=.20$ no configuration reaches 9\% on either. The base error of these judges (35--44\%) is too close to $\alpha$, and confidence ranks errors too weakly (AUROC .57--.65) to find a low-risk subset.
+For these tasks, today's open VLM judges are suitable only inside estimators that do not need per-pair trust, such as the PPI rankings of \cref{sec:ranking}.

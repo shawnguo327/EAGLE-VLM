@@ -3,10 +3,10 @@
 \paragraph{Limitations.}
 The guarantee assumes calibration and deployment pairs are exchangeable. A new generator or domain needs recalibration, which costs a few hundred human labels.
 The guarantee also concerns agreement with the \emph{label source}. For crowd votes that is a noisy target, and a judge certified at $\alpha=.2$ may still disagree with a careful expert.
-Our judges are open 7--9B models with first-token readout. Thinking-mode judges change both accuracy and calibration \citep{welch2026the}, and we leave them to future work.
+Our judges are open 7--32B models of two families (Qwen2.5 and Qwen3/3.5) with first-token readout; the 32B rung was evaluated on subsets of at most 700 pairs. Thinking-mode judges change both accuracy and calibration \citep{welch2026the}, and we leave them to future work.
 Pointwise fallback requires a meaningful absolute scale, which some tasks (for example ``which edit is more faithful'') lack.
 
 \paragraph{Conclusion.}
-Order-symmetric confidence, the signal behind SCOPE and EAGLE, transfers to vision as a ranking signal but not as a calibrated or saturation-free one, and it ignores the disagreement in human votes.
-Reading it in log-odds space, escalating first to a differently-biased protocol, and calibrating the whole ladder jointly gives VLM judges a finite-sample guarantee with more automation.
+Order-symmetric confidence, the signal behind SCOPE and EAGLE, transfers to vision as a weak ranking signal but not as a calibrated or saturation-free one, and it ignores the ties in human votes.
+Reading it in log-odds space and calibrating an escalation ladder jointly over a small family of paths gives VLM judges a finite-sample guarantee with somewhat more automation, but which rung helps depends on the dataset, and on hard image-preference tasks little can be certified at all.
 For rankings, prediction-powered estimation keeps the guarantee for any judge, and a one-line bound tells practitioners when the judge will actually save human effort.
