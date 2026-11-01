@@ -3,9 +3,10 @@ import io, json, os, pathlib, random, base64, hashlib, collections
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+# EAGLEVLM_PREP_ROOT: dir holding raw/, items/, images/ (default: data_prep/); EAGLEVLM_CAP: items per dataset
+ROOT = pathlib.Path(os.environ.get("EAGLEVLM_PREP_ROOT", pathlib.Path(__file__).resolve().parent.parent))
 RAW = ROOT / "raw"
-CAP = 1500
+CAP = int(os.environ.get("EAGLEVLM_CAP", 1500))
 
 
 def save_img(src, dataset, name):
@@ -45,7 +46,8 @@ def safe(s):
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in str(s))[:120]
 
 
-def stratified_cap(recs, key=lambda r: r["subset"], cap=CAP, seed=0):
+def stratified_cap(recs, key=lambda r: r["subset"], cap=None, seed=0):
+    cap = CAP if cap is None else cap
     """Water-fill: every subset gets an equal share; small subsets are kept whole."""
     groups = collections.defaultdict(list)
     for r in recs:

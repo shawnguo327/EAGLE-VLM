@@ -16,6 +16,8 @@ DESC_CAND = ("This image was produced for the request: \"{q}\". Describe the ima
 
 def requests(r):
     """list of (slot, messages); slot = ('ctx', 0) or ('cand', k)."""
+    if r["kind"] == "text":
+        return []
     if r["kind"] == "resp":
         if not r["context"]:
             return []

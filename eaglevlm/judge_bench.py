@@ -16,8 +16,13 @@ Readout = first-token log-probs over the answer keys. Conditions:
     bin_lowres A/B with every image at LOWRES px (dependence on fine detail)
     bin_hires  A/B with images at HIRES px (more visual evidence; use --tiling for InternVL)
     bin_desc   A/B with generated detailed descriptions added to the images (--desc; see describe.py)
+    tri_p1..3  A/B/T with three paraphrased instructions (prompt-nuisance ensemble)
+    tri_jpeg   A/B/T with every image JPEG-recompressed at quality 30 (image-nuisance)
+    tri_crop   A/B/T with every image center-cropped to 90% (image-nuisance)
   pointwise (per candidate A/B)
     score      1..9
+Item kinds: resp (question images + two text responses), img (two images), text (no images; text-domain judge sets,
+used to compare VLM judges with text LLM judges under the same protocol; --text-llm loads a text-only causal LM).
 Run modes: single (--items/--out) or a plan file (--plan, JSON list of {items, out}); --shard/--nshard split the
 items by a hash of the id so several GPUs can share a dataset. Resumable: finished (id, cond, order) rows are skipped.
 --hidden 0.25,0.5,0.75,1.0 also saves last-token hidden states at those layer fractions to <out>.hid/*.npz.
@@ -34,9 +39,15 @@ MODELS = {"qwen3vl8b": PP / "Qwen3-VL-8B-Instruct", "qwen35_9b": PP / "Qwen3.5-9
           "qwen3vl32b": PP / "Qwen3-VL-32B-Instruct", "internvl35_8b": PP / "InternVL3_5-8B-HF"}
 MAXSIDE, LOWRES, HIRES = 768, 112, 1536
 MAXCHARS = 4000
-PAIR = {"bin", "tri", "str7", "bin_blind", "bin_lowres", "bin_hires", "bin_desc"}
-KEYS = {"tri": ["A", "B", "T"], "str7": [str(i) for i in range(1, 8)], "score": [str(i) for i in range(1, 10)]}
-keys_of = lambda c: KEYS.get(c, ["A", "B"])
+PAIR = {"bin", "tri", "str7", "bin_blind", "bin_lowres", "bin_hires", "bin_desc", "tri_p1", "tri_p2", "tri_p3",
+        "tri_jpeg", "tri_crop"}
+IMG_ONLY = {"tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc"}      # no-ops on text items: skipped there
+
+
+def keys_of(c):
+    if c.startswith("tri"):
+        return ["A", "B", "T"]
+    return {"str7": [str(i) for i in range(1, 8)], "score": [str(i) for i in range(1, 10)]}.get(c, ["A", "B"])
 
 ASK_RESP = {
     "bin": "You are judging the two responses to the question about the image(s). Criterion: {crit} "
@@ -55,18 +66,37 @@ ASK_IMG = {
     "str7": "{q}\nCriterion: {crit} Compare Image A and Image B on a 7-point scale: 1 = A is much better, "
             "2 = A is better, 3 = A is slightly better, 4 = they are about equal, 5 = B is slightly better, "
             "6 = B is better, 7 = B is much better. Answer with exactly one digit."}
+# paraphrased tri instructions (same answer keys) for the prompt-nuisance ensemble
+ASK_RESP |= {
+    "tri_p1": "Two assistants answered the question about the image(s). Criterion: {crit} Decide which answer is better. "
+              "Reply A if Response A is better, B if Response B is better, or T if neither is clearly better. Reply with one letter.",
+    "tri_p2": "Evaluate both responses against this criterion: {crit} If one response is clearly superior, output its letter "
+              "(A or B). If they are of comparable quality, output T. Output a single letter.",
+    "tri_p3": "As an impartial judge, compare Response A and Response B for the question about the image(s). Criterion: {crit} "
+              "Answer A, B, or T (tie). One letter only."}
+ASK_IMG |= {
+    "tri_p1": "{q}\nCriterion: {crit} Decide which image is better. Reply A if Image A is better, B if Image B is better, or T "
+              "if neither is clearly better. Reply with one letter.",
+    "tri_p2": "{q}\nEvaluate both images against this criterion: {crit} If one image is clearly superior, output its letter "
+              "(A or B). If they are of comparable quality, output T. Output a single letter.",
+    "tri_p3": "{q}\nAs an impartial judge, compare Image A and Image B. Criterion: {crit} Answer A, B, or T (tie). One letter only."}
 SCORE_RESP = ("Question: {q}\n\n[Response]\n{a}\n\nCriterion: {crit} Rate this response on an integer scale "
               "from 1 (very poor) to 9 (excellent). Answer with exactly one digit.")
 SCORE_IMG = ("{q}\nCriterion: {crit} Rate this image on an integer scale from 1 (very poor) to 9 (excellent). "
              "Answer with exactly one digit.")
 
 
-def load_img(p, maxside=MAXSIDE):
+def load_img(p, maxside=MAXSIDE, perturb=None):
     im = Image.open(ROOT / p if not os.path.isabs(p) else p).convert("RGB")
+    if perturb == "crop":
+        w, h = im.size; dw, dh = int(w * .05), int(h * .05); im = im.crop((dw, dh, w - dw, h - dh))
     w, h = im.size
     s = maxside / max(w, h)
     if s < 1:
         im = im.resize((max(28, int(w * s)), max(28, int(h * s))), Image.BICUBIC)
+    if perturb == "jpeg":
+        import io
+        b = io.BytesIO(); im.save(b, "JPEG", quality=30); b.seek(0); im = Image.open(b).convert("RGB")
     return im
 
 
@@ -79,13 +109,16 @@ def build(r, cond, order, desc=None):
     """Chat messages for one call. `desc` = {id: {"ctx": [str], "cand": [str, str]}} for bin_desc."""
     c = []
     ms = {"bin_lowres": LOWRES, "bin_hires": HIRES}.get(cond, MAXSIDE)
-    load = lambda p: load_img(p, ms)
-    ask = cond if cond in ("tri", "str7") else "bin"
+    pert = {"tri_jpeg": "jpeg", "tri_crop": "crop"}.get(cond)
+    load = lambda p: load_img(p, ms, pert)
+    ask = cond if cond in ("tri", "str7", "tri_p1", "tri_p2", "tri_p3") else "tri" if cond in ("tri_jpeg", "tri_crop") else "bin"
     D = desc.get(r["id"]) if (cond == "bin_desc" and desc is not None) else None
     if cond == "bin_desc" and D is None:
         raise KeyError(f"no description for {r['id']}")
-    if r["kind"] == "resp":
-        if cond == "bin_blind":
+    if r["kind"] in ("resp", "text"):
+        if r["kind"] == "text":
+            pass
+        elif cond == "bin_blind":
             c.append({"type": "text", "text": "[The image(s) for this question are not shown.]"})
         else:
             for p in r["context"]:
@@ -94,8 +127,13 @@ def build(r, cond, order, desc=None):
             c.append({"type": "text", "text": "Detailed description of the image(s):\n" + clip(" ".join(D["ctx"]))})
         if cond in PAIR:
             a, b = (r["cand"][0], r["cand"][1]) if order == "AB" else (r["cand"][1], r["cand"][0])
+            t = ASK_RESP[ask].format(crit=r["criterion"])
+            if r["kind"] == "text":
+                t = t.replace("to the question about the image(s)", "to the user's question").replace(
+                    "the question about the image(s)", "the user's question").replace("Two assistants answered the question",
+                                                                                     "Two assistants answered the user's question")
             c.append({"type": "text", "text": f"Question: {clip(r['question'])}\n\n[Response A]\n{clip(a)}\n\n"
-                                              f"[Response B]\n{clip(b)}\n\n" + ASK_RESP[ask].format(crit=r["criterion"])})
+                                              f"[Response B]\n{clip(b)}\n\n" + t})
         else:
             x = r["cand"][0] if order == "A" else r["cand"][1]
             c.append({"type": "text", "text": SCORE_RESP.format(q=clip(r["question"]), a=clip(x), crit=r["criterion"])})
@@ -123,17 +161,38 @@ def in_shard(i, shard, nshard):
     return nshard <= 1 or zlib.crc32(i.encode()) % nshard == shard
 
 
-def load_model(name, path, device_map="cuda:0", tiling=False):
+class TextProc:
+    """Processor-like adapter for text-only causal LMs: flattens the text parts of each message."""
+    def __init__(self, tok):
+        self.tokenizer = tok
+
+    def apply_chat_template(self, msgs, **kw):
+        flat = [[{"role": m["role"], "content": "\n\n".join(x["text"] for x in m["content"] if x["type"] == "text")}
+                 for m in ms] for ms in msgs]
+        return self.tokenizer.apply_chat_template(flat, **kw)
+
+    def batch_decode(self, *a, **kw):
+        return self.tokenizer.batch_decode(*a, **kw)
+
+
+def load_model(name, path, device_map="cuda:0", tiling=False, text_llm=False):
     from transformers import AutoProcessor, AutoModelForImageTextToText
     mp = path or MODELS[name]
+    dm = {"": "cuda:0"} if device_map == "cuda:0" else device_map
+    if text_llm:
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        tok = AutoTokenizer.from_pretrained(mp); tok.padding_side = "left"
+        if tok.pad_token is None:
+            tok.pad_token = tok.eos_token
+        model = AutoModelForCausalLM.from_pretrained(mp, dtype=torch.bfloat16, device_map=dm, attn_implementation="sdpa").eval()
+        return TextProc(tok), model
     internvl = "internvl" in (name + str(mp)).lower()
     # InternVL: by default one 448px tile per image (no dynamic tiling), keeping the visual token budget comparable
     # to Qwen. Must be set at construction: per-call processor_kwargs are ignored in batched apply_chat_template.
     proc = AutoProcessor.from_pretrained(mp, **({"crop_to_patches": bool(tiling)} if internvl else {}))
     proc.tokenizer.padding_side = "left"
     model = AutoModelForImageTextToText.from_pretrained(
-        mp, dtype=torch.bfloat16, device_map={"": "cuda:0"} if device_map == "cuda:0" else device_map,
-        attn_implementation="sdpa").eval()
+        mp, dtype=torch.bfloat16, device_map=dm, attn_implementation="sdpa").eval()
     return proc, model
 
 
@@ -164,6 +223,7 @@ def main():
     ap.add_argument("--shard", type=int, default=0); ap.add_argument("--nshard", type=int, default=1)
     ap.add_argument("--device-map", default="cuda:0", help="cuda:0 or auto (spread a large model over visible GPUs)")
     ap.add_argument("--tiling", action="store_true", help="InternVL dynamic tiling (for bin_hires)")
+    ap.add_argument("--text-llm", action="store_true", help="text-only causal LM (text items only)")
     ap.add_argument("--desc", default=None, help="glob of describe.py outputs (for bin_desc)")
     ap.add_argument("--hidden", default="", help="layer fractions, e.g. 0.25,0.5,0.75,1.0 -> <out>.hid/*.npz")
     ap.add_argument("--progress", default=None, help="write a progress JSON here every ~15 s")
@@ -197,6 +257,10 @@ def main():
             for c in conds:
                 if c == "bin_blind" and r["kind"] != "resp":
                     continue
+                if c in IMG_ONLY and r["kind"] == "text":
+                    continue
+                if a.text_llm and r["kind"] != "text":
+                    continue
                 if c == "bin_desc" and r["id"] not in desc:
                     continue
                 for o in (("AB", "BA") if c in PAIR else ("A", "B")):
@@ -209,7 +273,7 @@ def main():
     if not jobs:
         prog.write(0, "done", force=True); print("DONE 0", flush=True); return
 
-    proc, model = load_model(a.model, a.model_path, a.device_map, a.tiling)
+    proc, model = load_model(a.model, a.model_path, a.device_map, a.tiling, a.text_llm)
     tok = proc.tokenizer
     ids = {c: tok.encode(c, add_special_tokens=False)[0] for c in ["A", "B", "T"] + [str(i) for i in range(1, 10)]}
     fr = [float(x) for x in a.hidden.split(",") if x]

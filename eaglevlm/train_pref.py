@@ -16,8 +16,9 @@ from judge_bench import build, load_model, ROOT
 W = {0.5: .5, 1.5: .75, 2.5: 1.0}
 
 
-def target(r, bothbad_tie=True):
-    """[pA, pB, pT] for order AB (cand0 = A); None to skip."""
+def target(r, bothbad_tie=True, hard=False):
+    """[pA, pB, pT] for order AB (cand0 = A); None to skip. hard=True: control without the T channel -- ties are
+    dropped and every strict pair is a one-hot winner (MMRB2 included)."""
     m = r.get("meta") or {}
     if isinstance(m, str):
         try:
@@ -25,11 +26,13 @@ def target(r, bothbad_tie=True):
         except Exception:
             m = {}
     if r["label"] == "tie":
+        if hard:
+            return None
         if r["dataset"] == "genai_arena" and m.get("vote_type") == "bothbad_vote" and not bothbad_tie:
             return None
         return [0., 0., 1.]
     win = 0 if r["label"] == 0 else 1
-    if r["dataset"] == "mmrb2" and m.get("human_annotations"):
+    if r["dataset"] == "mmrb2" and m.get("human_annotations") and not hard:
         ha = m["human_annotations"]; ha = ast.literal_eval(ha) if isinstance(ha, str) else ha
         maj = (sum(ha) / len(ha)) >= 3.5
         t = [0., 0., 0.]
@@ -49,6 +52,8 @@ def main():
     ap.add_argument("--lora-r", type=int, default=16); ap.add_argument("--bs", type=int, default=2)
     ap.add_argument("--grad-accum", type=int, default=8); ap.add_argument("--eps", type=float, default=0.02)
     ap.add_argument("--bothbad-tie", type=int, default=1)
+    ap.add_argument("--hard", type=int, default=0, help="1 = hard-label control (no ties, one-hot winners)")
+    ap.add_argument("--tag", default="ft", help="output name: <ds>__<model>_<tag>.f<fold>")
     ap.add_argument("--max-train", type=int, default=0); ap.add_argument("--max-eval", type=int, default=0)
     ap.add_argument("--eval-bs", type=int, default=8); ap.add_argument("--progress", default=None)
     a = ap.parse_args()
@@ -63,7 +68,7 @@ def main():
     train, evals = [], []
     for ds in a.datasets.split(","):
         for l in open(ROOT / "items" / f"{ds}.jsonl"):
-            r = json.loads(l); t = target(r, bool(a.bothbad_tie))
+            r = json.loads(l); t = target(r, bool(a.bothbad_tie), bool(a.hard))
             if t is None:
                 continue
             (evals if zlib.crc32(r["id"].encode()) % 2 == a.fold else train).append((r, t))
@@ -113,7 +118,7 @@ def main():
                 json.dump({"model": a.model, "phase": "train", "fold": a.fold, "done": step, "total": steps,
                            "elapsed_s": round(time.time() - t0), "status": "running"}, open(a.progress, "w"))
     if rank == 0:
-        model.save_pretrained(os.path.join(a.out, f"lora_{a.model}_f{a.fold}"))
+        model.save_pretrained(os.path.join(a.out, f"lora_{a.model}_{a.tag}_f{a.fold}"))
 
     # ---- out-of-fold predictions, both orders, judge_bench format
     model.eval(); mine = evals[rank::world]
@@ -127,8 +132,8 @@ def main():
         for (r, o), row in zip(B, lp):
             ds = r["dataset"]
             if ds not in files:
-                files[ds] = open(os.path.join(a.out, f"{ds}__{a.model}_ft.f{a.fold}.r{rank}.jsonl"), "w", buffering=1)
-            files[ds].write(json.dumps({"id": r["id"], "cond": "tri_ft", "order": o,
+                files[ds] = open(os.path.join(a.out, f"{ds}__{a.model}_{a.tag}.f{a.fold}.r{rank}.jsonl"), "w", buffering=1)
+            files[ds].write(json.dumps({"id": r["id"], "cond": f"tri_{a.tag}", "order": o,
                                         "lp": dict(zip("ABT", row.tolist()))}) + "\n")
     if rank == 0 and a.progress:
         json.dump({"model": a.model, "phase": "train", "fold": a.fold, "done": steps, "total": steps,

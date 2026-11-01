@@ -3,8 +3,9 @@
 
   ./run.sh check                    environment, data and model check (no GPU work)
   ./run.sh models [PHASE ...]       download the models the phases need (hf download; set HF_ENDPOINT for a mirror)
-  ./run.sh plan PHASE               print the task list of a phase (dry run)
-  ./run.sh start PHASE [PHASE ...]  start a background scheduler that runs the phases in order
+  ./run.sh plan PHASE [...] [--cmds] calls and estimated GPU-hours per phase/model (dry run); --cmds prints commands
+  ./run.sh start PHASE [PHASE ...]  background scheduler: one priority queue over the phases (command-line order),
+                                    idle GPUs are backfilled with later tasks
   ./run.sh status [-w SEC]          progress table (per task: done/total, rate, ETA), GPU usage
   ./run.sh stop                     stop the scheduler and every task it started (explicit PIDs)
   ./run.sh collect [PHASE ...]      merge shards and pack runs into return/<name>.tar.gz
@@ -14,7 +15,7 @@ Tasks: a phase x model is split into S shards (S = #GPUs // gpus-per-model unles
 that loads the model once and walks all datasets of its shard. Tasks are resumable (finished rows are skipped), so
 stop/start, a crash or a retry never repeats work. The scheduler hands GPUs to tasks in FIFO order.
 """
-import argparse, glob, json, os, shutil, signal, subprocess, sys, tarfile, time
+import argparse, collections, glob, json, os, shutil, signal, subprocess, sys, tarfile, time
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -48,8 +49,16 @@ def model_path(C, m):
 
 
 def phase_datasets(C, ph):
+    """'all' = C['datasets']; a name in C['dataset_sets']; or an explicit list."""
     d = ph.get("datasets", "all")
-    return C["datasets"] if d == "all" else d
+    if d == "all":
+        return C["datasets"]
+    if isinstance(d, str):
+        return C.get("dataset_sets", {})[d]
+    out = []
+    for x in d:
+        out += C.get("dataset_sets", {}).get(x, [x])
+    return out
 
 
 def tasks_for(C, name):
@@ -72,11 +81,12 @@ def tasks_for(C, name):
                        "--out", os.path.join(rdir, "raw"), "--fold", str(f),
                        "--datasets", ",".join(phase_datasets(C, ph)),
                        "--progress", os.path.join(rdir, "state", f"{m}.f{f}.progress.json")]
-                for k in ("epochs", "lr", "lora_r", "bs", "grad_accum", "eps", "bothbad_tie", "max_train", "max_eval"):
+                for k in ("epochs", "lr", "lora_r", "bs", "grad_accum", "eps", "bothbad_tie", "max_train", "max_eval", "hard", "tag"):
                     if k in ph:
                         cmd += ["--" + k.replace("_", "-"), str(ph[k])]
                 T.append(dict(id=tid, model=m, gpus=g, cmd=cmd, log=os.path.join(rdir, "logs", f"{m}.f{f}.log"),
-                              progress=os.path.join(rdir, "state", f"{m}.f{f}.progress.json")))
+                              progress=os.path.join(rdir, "state", f"{m}.f{f}.progress.json"),
+                              phase=name, after=list(ph.get("after", []))))
             continue
         S = man.get(m) or int(ph.get("shards", 0)) or max(1, ngpu // g)
         man[m] = S
@@ -85,7 +95,7 @@ def tasks_for(C, name):
             plan = [{"items": os.path.join(P["data"], "items", f"{d}.jsonl"),
                      "out": os.path.join(rdir, "raw", f"{d}__{m}.s{i}of{S}.jsonl")} for d in phase_datasets(C, ph)]
             plan_p = os.path.join(rdir, "plans", f"{m}.s{i}.json")
-            script = "describe.py" if kind == "describe" else "judge_bench.py"
+            script = {"describe": "describe.py", "reason": "reason_judge.py"}.get(kind, "judge_bench.py")
             cmd = [py, os.path.join(code, script), "--model", m, "--model-path", model_path(C, m), "--plan", plan_p,
                    "--bs", str(ph.get("bs", spec.get("bs", C.get("defaults", {}).get("bs", 8)))),
                    "--shard", str(i), "--nshard", str(S),
@@ -94,8 +104,15 @@ def tasks_for(C, name):
                 cmd += ["--device-map", "auto"]
             if ph.get("limit"):
                 cmd += ["--limit", str(ph["limit"])]
+            if spec.get("text_llm"):
+                cmd += ["--text-llm"]
             if kind == "describe":
                 cmd += ["--max-new-tokens", str(ph.get("max_new_tokens", 256))]
+            elif kind == "reason":
+                cmd += ["--n", str(ph.get("n", 4)), "--max-new-tokens", str(ph.get("max_new_tokens", 1536)),
+                        "--temperature", str(ph.get("temperature", 0.7)), "--kinds", ph.get("kinds", "resp,img,text")]
+                if ph.get("thinking", spec.get("thinking")):
+                    cmd += ["--thinking"]
             else:
                 cmd += ["--conds", ph["conds"]]
                 if ph.get("hidden"):
@@ -107,82 +124,117 @@ def tasks_for(C, name):
                     cmd += ["--desc", os.path.join(P["runs"], ph["desc_from"], "raw", f"*__{src}.s*.jsonl")]
             T.append(dict(id=tid, model=m, gpus=g, cmd=cmd, plan=plan, plan_path=plan_p,
                           log=os.path.join(rdir, "logs", f"{m}.s{i}.log"),
-                          progress=os.path.join(rdir, "state", f"{m}.s{i}.progress.json")))
+                          progress=os.path.join(rdir, "state", f"{m}.s{i}.progress.json"),
+                          phase=name, after=list(ph.get("after", []))))
     return T, man
 
 
 # ----------------------------------------------------------------------------- scheduler daemon
+def phase_done_on_disk(C, name):
+    st = os.path.join(C["paths"]["runs"], name, "tasks.json")
+    return os.path.exists(st) and all(t["state"] == "done" for t in json.load(open(st)))
+
+
 def daemon(C, phases):
+    """One global queue over all requested phases. Priority = order of the phases on the command line, then task
+    order. The head task (highest priority eligible) starts as soon as it fits; while it waits for GPUs, later tasks
+    that fit may backfill idle GPUs, but only for `backfill_minutes` -- after that the free GPUs are held for the head
+    so multi-GPU tasks cannot starve. A task with `after: [phase]` becomes eligible when that phase is done."""
     P = C["paths"]; os.makedirs(P["runs"], exist_ok=True)
     stop = {"flag": False}
     signal.signal(signal.SIGTERM, lambda *_: stop.update(flag=True))
     env0 = dict(os.environ, EAGLEVLM_DATA=P["data"], PYTHONUNBUFFERED="1", HF_HUB_OFFLINE="1",
                 PYTHONPATH=os.path.join(P["code"], "eaglevlm"))
-    gpus = gpu_list(C); retries = int(C.get("retries", 2))
+    gpus = gpu_list(C); retries = int(C.get("retries", 2)); backfill_s = 60 * float(C.get("backfill_minutes", 30))
+    T, byphase = [], {}
     for name in phases:
         rdir = os.path.join(P["runs"], name)
         for sub in ("raw", "plans", "state", "logs"):
             os.makedirs(os.path.join(rdir, sub), exist_ok=True)
-        T, man = tasks_for(C, name)
+        Tp, man = tasks_for(C, name)
         json.dump(man, open(os.path.join(rdir, "manifest.json"), "w"))
         st_p = os.path.join(rdir, "tasks.json")
         old = {t["id"]: t for t in json.load(open(st_p))} if os.path.exists(st_p) else {}
-        for t in T:
+        for t in Tp:
             if "plan" in t:
                 json.dump(t["plan"], open(t["plan_path"], "w"))
-            o = old.get(t["id"], {})
-            t["state"] = "done" if o.get("state") == "done" else "pending"
+            t["state"] = "done" if old.get(t["id"], {}).get("state") == "done" else "pending"
             t["tries"] = 0; t["pid"] = None; t["devices"] = []
-        free = list(gpus); running = {}
+        T += Tp; byphase[name] = Tp
 
-        def save():
-            tmp = st_p + ".tmp"
-            json.dump([{k: v for k, v in t.items() if k not in ("plan", "proc")} for t in T], open(tmp, "w"), indent=1)
-            os.replace(tmp, st_p)
+    def save(name):
+        st_p = os.path.join(P["runs"], name, "tasks.json"); tmp = st_p + ".tmp"
+        json.dump([{k: v for k, v in t.items() if k not in ("plan", "proc")} for t in byphase[name]], open(tmp, "w"), indent=1)
+        os.replace(tmp, st_p)
 
-        save()
-        while not stop["flag"]:
-            for pid, t in list(running.items()):
-                rc = t["proc"].poll()
-                if rc is None:
-                    continue
-                del running[pid]; free += t["devices"]; t.pop("proc")
-                t["ended"] = time.strftime("%Y-%m-%d %H:%M:%S"); t["rc"] = rc
-                if rc == 0:
-                    t["state"] = "done"
-                else:
-                    t["tries"] += 1
-                    t["state"] = "pending" if t["tries"] <= retries else "failed"
-                save()
-            pend = [t for t in T if t["state"] == "pending"]
-            if pend and len(free) >= pend[0]["gpus"]:                     # strict FIFO: big tasks are not starved
-                t = pend[0]; dev = sorted(free)[: t["gpus"]]
-                for d in dev:
-                    free.remove(d)
-                env = dict(env0, CUDA_VISIBLE_DEVICES=",".join(map(str, dev)))
-                lf = open(t["log"], "a"); lf.write(f"\n=== {time.strftime('%F %T')} start on GPU {dev}\n"); lf.flush()
-                p = subprocess.Popen(t["cmd"], env=env, stdout=lf, stderr=subprocess.STDOUT, cwd=P["data"],
-                                     start_new_session=True)
-                t.update(state="running", pid=p.pid, devices=dev, started=time.strftime("%Y-%m-%d %H:%M:%S"), proc=p)
-                running[p.pid] = t; save()
+    for name in byphase:
+        save(name)
+
+    def dep_ok(t):
+        for d in t["after"]:
+            if d in byphase:
+                if not all(x["state"] == "done" for x in byphase[d]):
+                    return False
+            elif not phase_done_on_disk(C, d):
+                return False
+        return True
+
+    free = list(gpus); running = {}; head_since = {}
+
+    def launch(t):
+        dev = sorted(free)[: t["gpus"]]
+        for d in dev:
+            free.remove(d)
+        env = dict(env0, CUDA_VISIBLE_DEVICES=",".join(map(str, dev)))
+        lf = open(t["log"], "a"); lf.write(f"\n=== {time.strftime('%F %T')} start on GPU {dev}\n"); lf.flush()
+        p = subprocess.Popen(t["cmd"], env=env, stdout=lf, stderr=subprocess.STDOUT, cwd=P["data"], start_new_session=True)
+        t.update(state="running", pid=p.pid, devices=dev, started=time.strftime("%Y-%m-%d %H:%M:%S"), proc=p)
+        running[p.pid] = t; head_since.pop(t["id"], None); save(t["phase"])
+        print(time.strftime("%F %T"), "start", t["id"], "GPU", dev, flush=True)
+
+    while not stop["flag"]:
+        for pid, t in list(running.items()):
+            rc = t["proc"].poll()
+            if rc is None:
                 continue
-            if not pend and not running:
-                break
-            time.sleep(5)
-        if stop["flag"]:
-            for pid, t in running.items():
-                try:
-                    os.killpg(pid, signal.SIGTERM)     # the task's own process group (pgid == its recorded pid)
-                except ProcessLookupError:
-                    pass
-            time.sleep(10)
-            for pid, t in running.items():
-                try:
-                    os.killpg(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                t["state"] = "pending"; t["devices"] = []; t.pop("proc", None)
-            save(); return
+            del running[pid]; free += t["devices"]; t.pop("proc")
+            t["ended"] = time.strftime("%Y-%m-%d %H:%M:%S"); t["rc"] = rc
+            if rc == 0:
+                t["state"] = "done"
+            else:
+                t["tries"] += 1; t["state"] = "pending" if t["tries"] <= retries else "failed"
+            print(time.strftime("%F %T"), "end", t["id"], "rc", rc, "->", t["state"], flush=True)
+            save(t["phase"])
+        elig = [t for t in T if t["state"] == "pending" and dep_ok(t)]
+        if elig:
+            head = elig[0]
+            if len(free) >= head["gpus"]:
+                launch(head); continue
+            since = head_since.setdefault(head["id"], time.time())
+            if time.time() - since < backfill_s:
+                fit = next((t for t in elig[1:] if t["gpus"] <= len(free)), None)
+                if fit is not None:
+                    launch(fit); continue
+        if not running and not any(t["state"] == "pending" for t in T):
+            break
+        if not running and not elig:
+            print("blocked: pending tasks wait for phases that are not done (failed tasks?)", flush=True); break
+        time.sleep(5)
+    if stop["flag"]:
+        for pid in running:
+            try:
+                os.killpg(pid, signal.SIGTERM)     # the task's own process group (pgid == its recorded pid)
+            except ProcessLookupError:
+                pass
+        time.sleep(10)
+        for pid, t in running.items():
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            t["state"] = "pending"; t["devices"] = []; t.pop("proc", None)
+        for name in byphase:
+            save(name)
 
 
 # ----------------------------------------------------------------------------- commands
@@ -311,7 +363,7 @@ def cmd_collect(C, a):
             groups = {}
             for f in glob.glob(os.path.join(rdir, "raw", "*.jsonl")):
                 b = os.path.basename(f)
-                base = b.split(".s")[0] if ".s" in b and "of" in b else b.split(".f")[0] if "_ft.f" in b else b[:-6]
+                base = b.split(".s")[0] if (".s" in b and "of" in b) else b.split(".f")[0] if ".r" in b else b[:-6]
                 groups.setdefault(base, []).append(f)
             n = 0
             for base, fs in groups.items():
@@ -335,11 +387,57 @@ def cmd_collect(C, a):
     print(f"\nreturn package: {tar_p} ({sz:.1f} MB)\n  fetch from your machine:  rsync -avP <user>@<host>:{tar_p} .")
 
 
+def count_calls(C, name):
+    """(#calls or #samples, est. GPU-hours) per model for a phase, from item counts and the model speed in config."""
+    ph = C["phases"][name]; kind = ph.get("type", "judge"); out = {}
+    for m in ph["models"]:
+        spec = C["models"][m]; n = 0
+        for d in phase_datasets(C, ph):
+            f = os.path.join(C["paths"]["data"], "items", f"{d}.jsonl")
+            if not os.path.exists(f):
+                continue
+            K = collections.Counter(json.loads(l)["kind"] for l in open(f))
+            lim = ph.get("limit")
+            for k, c in K.items():
+                if spec.get("text_llm") and k != "text":
+                    continue
+                c = min(c, lim) if lim else c
+                if kind == "judge":
+                    for cd in ph["conds"].split(","):
+                        if (cd == "bin_blind" and k != "resp") or (k == "text" and cd in ("tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc")):
+                            continue
+                        n += 2 * c
+                elif kind == "describe":
+                    n += c * (2 if k == "img" else 1 if k == "resp" else 0)
+                elif kind == "reason":
+                    if k in ph.get("kinds", "resp,img,text").split(","):
+                        n += 2 * c
+        g = int(ph.get("gpus_per_task", spec.get("gpus", 1)))
+        sp = float(spec.get("speed", 15))                                  # calls/s per process, images at 768 px
+        if kind == "judge":
+            sec = n / sp * float(ph.get("cost", 1.0))
+        elif kind == "describe":
+            sec = n * ph.get("max_new_tokens", 256) / float(spec.get("gen_tok_s", 1500))
+        elif kind == "reason":
+            sec = n * ph.get("n", 4) * ph.get("avg_tokens", 700) / float(spec.get("gen_tok_s", 1500))
+        else:
+            sec = 3600 * float(ph.get("est_hours", 2)) * len(ph.get("folds", [0, 1]))
+        out[m] = (n, sec * g / 3600)
+    return out
+
+
 def cmd_plan(C, a):
-    T, man = tasks_for(C, a.phase)
-    print(f"phase {a.phase}: {len(T)} tasks, GPUs {gpu_list(C)}")
-    for t in T:
-        print(f"  {t['id']:34s} gpus={t['gpus']}\n    " + " ".join(t["cmd"]))
+    tot = 0.0; ngpu = max(1, len(gpu_list(C)))
+    for name in a.phases:
+        est = count_calls(C, name); gh = sum(v[1] for v in est.values()); tot += gh
+        print(f"[{name}] {C['phases'][name].get('type', 'judge')}: {sum(v[0] for v in est.values()):,} calls/samples, "
+              f"~{gh:.1f} GPU-h")
+        for m, (n, h) in est.items():
+            print(f"    {m:18s} {n:>10,}  ~{h:6.1f} GPU-h")
+        if a.cmds:
+            for t in tasks_for(C, name)[0]:
+                print(f"  {t['id']:34s} gpus={t['gpus']}\n    " + " ".join(t["cmd"]))
+    print(f"\nTOTAL ~{tot:.0f} GPU-h  ->  ~{tot / ngpu:.1f} h wall on {ngpu} GPUs (estimate; speeds from config, check after smoke)")
 
 
 def needed_models(C, phases):
@@ -405,7 +503,7 @@ def main():
     sp.add_parser("stop")
     s = sp.add_parser("collect"); s.add_argument("phases", nargs="*"); s.add_argument("--hidden", action="store_true")
     s.add_argument("--lora", action="store_true")
-    s = sp.add_parser("plan"); s.add_argument("phase")
+    s = sp.add_parser("plan"); s.add_argument("phases", nargs="+"); s.add_argument("--cmds", action="store_true")
     s = sp.add_parser("models"); s.add_argument("phases", nargs="*")
     s = sp.add_parser("check"); s.add_argument("phases", nargs="*")
     s = sp.add_parser("logs"); s.add_argument("task"); s.add_argument("-n", type=int, default=30); s.add_argument("-f", action="store_true")

@@ -4,6 +4,10 @@ Per dataset x judge (order-averaged; str7 BA is mirrored k -> 8-k):
   U_bin    entropy of the order-averaged A/B probability (baseline)
   pT       P(T) under tri;  tri_U = entropy of A vs B within tri
   p4, pmid P(4) and P(3..5) under str7; s7_abs = |E[str7] - 4|
+  nuisance (if tri_p1..3 / tri_jpeg / tri_crop present): nuis_sd = SD of P(cand0 better | not T) across the tri
+           variants (epistemic: sensitivity to irrelevant changes), nuis_T = mean P(T) across variants (aleatoric)
+  reasoning (rows with "verdicts", cond reason): r_T = share of T verdicts over N x 2 orders, r_ent = verdict entropy,
+           r_flip = share of A/B verdicts disagreeing with the majority
 Metrics: tie AUROC (human ties), low-confidence tie-vs-error AUROC, MMRB2 Spearman with 3-annotator strength and
 split-vs-unanimous AUROC, error AUROC on strict pairs, tri/str7 accuracy and T-rate, cross-fitted logistic
 [U_bin, pT, p4] for tie detection.
@@ -32,6 +36,8 @@ def load(ds, m):
                 x = json.loads(l)
                 if "lp" in x:
                     R[x["id"]][(x["cond"], x["order"])] = x["lp"]
+                elif "verdicts" in x:
+                    R[x["id"]][("reason", x["order"])] = x["verdicts"]
     return R
 
 
@@ -52,6 +58,20 @@ def feats(r):
         f["p4"] = d[3]; f["pmid"] = d[2:5].sum()
         e = (d * np.arange(1, 8)).sum(); f["s7_abs"] = abs(e - 4); f["p_s7"] = d[:3].sum() / max(1e-9, d[:3].sum() + d[4:].sum())
         f["s7_order_gap"] = abs(sum(k * ab[str(k)] for k in range(1, 8)) - sum((8 - k) * ba[str(k)] for k in range(1, 8)))
+    V = [c for c in ("tri", "tri_p1", "tri_p2", "tri_p3", "tri_jpeg", "tri_crop") if (c, "AB") in r and (c, "BA") in r]
+    if len(V) >= 3:
+        ps, ts = [], []
+        for c in V:
+            ab, ba = _sm(r[(c, "AB")]), _sm(r[(c, "BA")])
+            ps.append((ab["A"] / (ab["A"] + ab["B"]) + ba["B"] / (ba["A"] + ba["B"])) / 2); ts.append((ab["T"] + ba["T"]) / 2)
+        f["nuis_sd"] = float(np.std(ps)); f["nuis_T"] = float(np.mean(ts)); f["n_variants"] = len(V)
+    if ("reason", "AB") in r and ("reason", "BA") in r:
+        v = [x for x in r[("reason", "AB")] if x] + [{"A": "B", "B": "A", "T": "T"}[x] for x in r[("reason", "BA")] if x]
+        if v:                                                    # mapped to cand0 = A orientation
+            c = collections.Counter(v); n = len(v); pr = np.array([c[k] / n for k in "ABT"])
+            f["r_T"] = pr[2]; f["r_ent"] = float(-(pr[pr > 0] * np.log(pr[pr > 0])).sum())
+            ab = c["A"] + c["B"]; f["r_flip"] = min(c["A"], c["B"]) / ab if ab else 0.0
+            f["p_reason"] = c["A"] / ab if ab else 0.5
     return f
 
 
@@ -88,6 +108,9 @@ for ds in a.ds.split(","):
         # "closeness" signals: higher = more likely close/tie
         close = {"U_bin": g("U_bin"), "pT": g("pT"), "p4": g("p4"), "pmid": g("pmid"), "-s7_abs": -g("s7_abs"),
                  "tri_U": g("tri_U")}
+        for k in ("nuis_sd", "nuis_T", "r_T", "r_ent", "r_flip"):          # optional signals (present for all ids?)
+            if all(k in F[i] for i in ids):
+                close[k] = g(k)
         if tie.sum() >= 15:
             res["tie_auroc"] = {k: round(auroc(v, tie), 3) for k, v in close.items()}
             X = np.c_[g("U_bin"), g("pT"), g("p4"), g("pmid")]
