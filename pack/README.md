@@ -33,22 +33,25 @@ cd /data/eaglev_pack
 bash setup_env.sh eaglev               # 末行打印解释器路径 -> 填到 config.yaml 的 python:
 ./run.sh check                         # 环境/数据/图片/模型逐项检查，最后一行 CHECK PASSED
 export HF_ENDPOINT=https://hf-mirror.com   # 如需镜像
-./run.sh models smoke scale B C_hires C_desc D   # 只下载这些阶段用到的模型（共约 490 GB），可重复运行补齐
+./run.sh models                     # 下载 config 中全部模型（约 760 GB）；也可只给阶段名，如 ./run.sh models core text
 ```
 
 ## 3. 运行
 
 ```bash
-./run.sh start smoke                   # 先冒烟：3 个小模型 × 每数据集 2 对（约 5 分钟）
-./run.sh status                        # 全部 done 后再继续
-./run.sh start smoke_big D_smoke       # 多卡模型加载 + LoRA 训练冒烟
-./run.sh start scale B C_hires C_desc C_judge D   # 正式：按顺序执行，全程后台
+./run.sh start smoke smoke_reason D_smoke        # 冒烟：小模型 + 文本 LLM + 推理 + LoRA（约 20 分钟）
+./run.sh status                                  # 全部 done 后：
+./run.sh start smoke_big                         # 大模型加载（32B 单卡 / 38B 2 卡 / 72B 4 卡）
+./run.sh plan core text text_big nuisance scale_small scale_big reason B B_big D D_hard C_hires C_desc C_judge
+# 正式：一个优先级队列（命令行顺序 = 优先级），空闲 GPU 自动回填后面的任务；backlog 放最后，用来填满剩余时间
+./run.sh start core text text_big nuisance scale_small scale_big reason B B_big D D_hard C_hires C_desc C_judge \
+               scale_big_more scale_big_full reason_big
 ```
-- `start` 立即返回，调度器在后台（`nohup` 等价，断开 ssh 不受影响）。
-- 每个阶段按 `GPU数 / 每模型卡数` 自动切分片，同一模型的多个分片并行，大模型（32B/38B 2 卡、72B 4 卡）用 `device_map=auto`。
-- 任务失败自动重试 `retries` 次；所有任务可续跑（已完成的行跳过），`stop` 后再 `start` 同一阶段不会重复计算。
-- 改参数：编辑 `config.yaml`（例如 `gpus: [0,1,2,3]` 只用 4 张卡；某模型 `bs: 4` 防 OOM）。分片数在阶段第一次启动时固定在 `runs/<phase>/manifest.json`，改卡数后要删掉它（及该阶段 raw/）重跑。
-- `./run.sh plan scale` 打印将要执行的全部命令（不运行）。
+- `start` 立即返回，调度器在后台（断开 ssh 不受影响）。
+- 单卡模型每张 GPU 跑 2 个进程（`slots_per_gpu: 2`；单进程受 CPU 图像预处理限制，实测两进程吞吐翻倍）；多卡模型、32B 和训练独占 GPU。
+- 任何时候停下都可以：已完成的行全部保留，下次 `start` 续跑；按优先级排序保证先拿到最重要的结果。
+- 任务写出错误行（OOM 等）时以退出码 3 结束 → 自动重试（只重做错误行），用完重试次数后标记 `partial` 但不阻塞后续阶段。
+- `./run.sh plan ...` 打印每阶段/模型的调用量与 GPU 时估算（速度取自 config，冒烟后可按 status 的实测速率修正 `speed`）。
 
 ## 4. 监视
 
@@ -83,18 +86,24 @@ python $S/probe_hidden.py --model qwen3vl8b --dirs h100/B/hidden --results resul
 python $S/analyze_A.py --dirs h100/D/merged ...          # tri_ft 结果
 ```
 
-## 阶段与预算（8×H100，HF Transformers 推理；12,753 对）
+## 阶段与预算（8×H100；`./run.sh plan` 的估算，速度按 bjserver 实测 ×1.3 标定，误差约 ±30–50%）
 
-| 阶段 | 内容 | 调用量 | 估计墙钟 |
+数据：48k 对（含 6 个“全量”集，人类平局/分歧样本是现在的 4–5 倍；PP 平局集 6000 对；文本 judge 集 MT-Bench 人类判断 910 对 + LMArena 3000 对）。
+
+| 优先级 | 阶段 | 内容 | GPU 时 |
 |---|---|---|---|
-| smoke / smoke_big / D_smoke | 冒烟 | 极少 | 共约 20 分钟（含模型加载） |
-| scale | 11 个新尺寸 × bin,score,tri,str7（每对 8 次调用） | 约 1.1M | 小模型 10–20 分钟/个；32B/38B 约 1 小时/个；72B 约 4–6 小时；合计约 10–12 小时 |
-| B | 7 个模型 × bin,tri + 4 层隐状态 | 约 0.36M | 约 3–4 小时（72B 占一半） |
-| C_hires | 1536 px（InternVL 切片）× bin_hires,tri | 约 0.2M | 约 1–2 小时 |
-| C_desc → C_judge | 自描述 256 token 生成 → 带描述判断 | 约 18k 生成 + 0.1M | 约 2–3 小时 |
-| D | 8B LoRA 两折（每折 4 卡 DDP，约 12k 对 × 2 顺序）+ 折外预测 | — | 约 2–3 小时/模型 |
+| 1 | core | 4 个基础 judge × 全量 × bin/tri/str7/score | 13.5 |
+| 2 | text, text_big | 文本域对照：文本 LLM（8B/7B/32B/72B）与 VLM 在同一协议下判文本对 | 14.1 |
+| 3 | nuisance | 3 种改写指令 + JPEG + 裁剪：epistemic = 对无关扰动的敏感度 | 16.9 |
+| 4 | scale_small, scale_big | 3 家族 1B→72B 尺寸阶梯（大模型 bin/tri） | 87.5（72B 约 47） |
+| 5 | reason | 推理 + 自洽采样（N=4，思考模式，未完成样本 budget forcing） | 41.7 |
+| 6 | B, B_big | 4 层隐状态（线性探针） | 11.5 |
+| 7 | D, D_hard | LoRA 拟合人类偏好分布（两折）+ 硬标签对照 | 23.2 |
+| 8 | C_hires, C_desc, C_judge | 更多视觉证据：高分辨率/切片、先描述再判断 | 13.5 |
+| | **主计划合计** | | **≈222 GPU 时 ≈ 28 小时** |
+| 9 | backlog | 大模型 str7/score、32B 全量、32B 推理 | 109（填满剩余时间） |
 
-全部约 20–25 小时墙钟（约 8 GPU·天）。最先回传 `scale`，它决定论文主线（epistemic 随规模下降、aleatoric 不降？）。
+租 24 小时：主计划前 7 个优先级约 200 GPU 时，基本跑满；C 阶段与 backlog 能跑多少算多少。
 
 ## 条件说明（code/eaglevlm/judge_bench.py）
 
@@ -106,4 +115,7 @@ python $S/analyze_A.py --dirs h100/D/merged ...          # tri_ft 结果
 | score | 1..9 | 逐点评分 |
 | bin_hires | A/B | 1536 px；InternVL 打开动态切片：更多视觉证据能否消除“无法确认” |
 | bin_desc | A/B | 先描述再判断（描述来自 C_desc） |
-| tri_ft | A/B/T | D 阶段 LoRA 后的折外预测 |
+| tri_p1..3 | A/B/T | 三种改写指令（指令扰动） |
+| tri_jpeg / tri_crop | A/B/T | JPEG q30 / 中心裁剪 90%（图像扰动；文本项跳过） |
+| reason | 判决样本 | 推理后输出 Verdict，N 次采样（reason_judge.py） |
+| tri_ft / tri_hard | A/B/T | D / D_hard 阶段 LoRA 后的折外预测 |
