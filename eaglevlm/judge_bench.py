@@ -174,6 +174,9 @@ class TextProc:
     def batch_decode(self, *a, **kw):
         return self.tokenizer.batch_decode(*a, **kw)
 
+    def __call__(self, text=None, images=None, **kw):
+        return self.tokenizer(text, **kw)
+
 
 def load_model(name, path, device_map="cuda:0", tiling=False, text_llm=False):
     from transformers import AutoProcessor, AutoModelForImageTextToText
@@ -296,7 +299,7 @@ def main():
         hid_buf, hid_chunk = [], hid_chunk + 1
 
     files = {k: open(e["out"], "a", buffering=1) for k, e in enumerate(plan)}
-    t0 = time.time(); s = 0; bs = a.bs; dev = "cuda:0"
+    t0 = time.time(); s = 0; bs = a.bs; dev = "cuda:0"; nerr = 0
     while s < len(jobs):
         B = jobs[s:s + bs]
         try:
@@ -315,14 +318,14 @@ def main():
             if bs == 1:
                 for (k, r, c, o) in B:
                     files[k].write(json.dumps({"id": r["id"], "cond": c, "order": o, "error": "oom"}) + "\n")
-                s += 1; bs = a.bs
+                nerr += len(B); s += 1; bs = a.bs
             else:
                 bs = max(1, bs // 2)
             continue
         except Exception as e:
             for (k, r, c, o) in B:
                 files[k].write(json.dumps({"id": r["id"], "cond": c, "order": o, "error": repr(e)[:200]}) + "\n")
-            s += len(B)
+            nerr += len(B); s += len(B)
             continue
         for n, ((k, r, c, o), row) in enumerate(zip(B, lp)):
             raw = {key: row[ids[key]].item() for key in keys_of(c)}
@@ -340,7 +343,9 @@ def main():
     if fr and hid_buf:
         flush_hidden()
     prog.write(len(jobs), "done", force=True)
-    print("DONE", round(time.time() - t0), flush=True)
+    print("DONE", round(time.time() - t0), "errors", nerr, flush=True)
+    if nerr:
+        raise SystemExit(3)  # the scheduler retries the task; the resume step redoes only the error rows
 
 
 if __name__ == "__main__":

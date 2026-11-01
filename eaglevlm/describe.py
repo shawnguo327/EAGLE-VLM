@@ -57,7 +57,7 @@ def main():
         prog.write(0, "done", force=True); print("DONE 0"); return
     proc, model = load_model(a.model, a.model_path, a.device_map)
     files = {k: open(e["out"], "a", buffering=1) for k, e in enumerate(plan)}
-    t0 = time.time(); s = 0; bs = a.bs
+    t0 = time.time(); s = 0; bs = a.bs; nerr = 0
     while s < len(todo):
         B = todo[s:s + bs]
         try:
@@ -84,12 +84,14 @@ def main():
                 bs = max(1, bs // 2)
             continue
         except Exception as e:
-            print("error", repr(e)[:200], flush=True); s += len(B); continue
+            print("error", repr(e)[:200], flush=True); nerr += len(B); s += len(B); continue
         for n, (k, r) in enumerate(B):
             files[k].write(json.dumps({"id": r["id"], **res[n]}) + "\n")
         s += len(B); prog.write(s, current=plan[B[-1][0]]["items"])
         bs = min(a.bs, bs * 2) if bs < a.bs else bs
     prog.write(len(todo), "done", force=True); print("DONE", round(time.time() - t0), flush=True)
+    if nerr:
+        raise SystemExit(3)  # items that failed have no row, so the retry redoes exactly them
 
 
 if __name__ == "__main__":

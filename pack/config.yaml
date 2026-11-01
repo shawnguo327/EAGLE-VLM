@@ -44,10 +44,10 @@ models:
 datasets: [pp, mmrb2, genai_arena, mllm_judge, editreward, vlrb, mmrb, mjbench, imagerewarddb, qbench2, mmrlhf]
 dataset_sets:
   sub:  [pp, mmrb2, genai_arena, mllm_judge, editreward, vlrb, mmrb, mjbench, imagerewarddb, qbench2, mmrlhf]
-  full: [pp_full, mmrb2_full, genai_arena_full, mllm_judge_full, editreward_full, imagerewarddb_full, mmrb_full,
+  full: [pp_full, mmrb2, genai_arena_full, mllm_judge_full, editreward_full, imagerewarddb_full, mmrb_full,
          pp, vlrb, mjbench, qbench2, mmrlhf]
   text: [mtbench_human, arena55k]
-  aleatoric: [pp_full, mmrb2_full, genai_arena_full, mllm_judge_full, editreward_full, imagerewarddb_full]
+  aleatoric: [pp_full, mmrb2, genai_arena_full, mllm_judge_full, editreward_full, imagerewarddb_full]
 
 # Phases. ./run.sh start P1 P2 ... puts them in ONE priority queue (command-line order); idle GPUs are backfilled.
 # Recommended order = scientific priority, so stopping at any time keeps the most important results.
@@ -56,7 +56,7 @@ phases:
   smoke:
     type: judge
     conds: bin,tri,str7,score,tri_p1,tri_jpeg
-    datasets: [pp_full, mmrb2_full, mllm_judge_full, mtbench_human]
+    datasets: [pp_full, mmrb2, mllm_judge_full, mtbench_human]
     limit: 2
     shards: 1
     models: [qwen3vl2b, internvl35_1b, qwen25vl3b, qwen3_8b]
@@ -81,7 +81,7 @@ phases:
     folds: [0]
     max_train: 16
     max_eval: 8
-    datasets: [mmrb2_full, mllm_judge_full]
+    datasets: [mmrb2, mllm_judge_full]
     models: [qwen3vl8b]
 
   # ---------------------------------------------------------------- P1 core: 4 base judges on the full sets
@@ -196,7 +196,7 @@ phases:
   scale_big_full:
     type: judge
     conds: bin,tri,str7,score
-    datasets: [pp_full, mmrb2_full, genai_arena_full, mllm_judge_full, imagerewarddb_full]
+    datasets: [pp_full, mmrb2, genai_arena_full, mllm_judge_full, imagerewarddb_full]
     models: [qwen3vl32b, internvl35_38b, qwen25vl32b]
   reason_big:
     type: reason

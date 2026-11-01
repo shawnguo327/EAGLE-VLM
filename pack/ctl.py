@@ -202,7 +202,11 @@ def daemon(C, phases):
             if rc == 0:
                 t["state"] = "done"
             else:
-                t["tries"] += 1; t["state"] = "pending" if t["tries"] <= retries else "failed"
+                t["tries"] += 1
+                if t["tries"] <= retries:
+                    t["state"] = "pending"
+                else:   # rc 3 = finished with some error rows (e.g. a pair that OOMs at batch 1): keep it, flag it
+                    t["state"] = "done" if rc == 3 else "failed"; t["partial"] = rc == 3
             print(time.strftime("%F %T"), "end", t["id"], "rc", rc, "->", t["state"], flush=True)
             save(t["phase"])
         elig = [t for t in T if t["state"] == "pending" and dep_ok(t)]
@@ -307,7 +311,8 @@ def status_once(C):
             eta = fmt_s(pr.get("eta_s")) if t["state"] == "running" else ""
             lines.append(f"  {t['id']:34s} {','.join(map(str, t.get('devices') or [])):7s} {t['state']:8s} "
                          f"{d:>8}/{n:<8} {pct:>6} {pr.get('rate', ''):>7} {eta:>7}"
-                         + (f"  rc={t.get('rc')} see {t['log']}" if t["state"] == "failed" else ""))
+                         + (f"  rc={t.get('rc')} see {t['log']}" if t["state"] == "failed" else "")
+                         + ("  (some error rows; see log)" if t.get("partial") else ""))
         if tot_t:
             lines.append(f"  {'total (tasks started so far)':34s} {'':16s} {tot_d:>8}/{tot_t:<8} {100 * tot_d / tot_t:5.1f}")
     try:

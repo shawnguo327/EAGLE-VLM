@@ -2,15 +2,36 @@
 reasons (thinking models: in <think>; instruct models: step by step) and ends with "Verdict: A|B|T". The empirical
 verdict distribution over N samples is a sampling-based uncertainty estimate, and reasoning is the LLM-judge
 practice whose transfer to VLM judges we test: does it remove "cannot tell" but leave "close" as T?
-Output rows: {"id","cond":"reason","order","verdicts":[...],"lens":[...],"trunc":k,"sample":first text (clipped)}.
+Budget forcing: a sample that ends without a parsable verdict (usually truncated at --max-new-tokens) is closed with
+"</think>\n\nVerdict:" (or "\nVerdict:") appended to its own reasoning and one forward pass reads the A/B/T logits.
+Output rows: {"id","cond":"reason","order","verdicts":[...],"forced":[0/1...],"forced_lp":[{A,B,T}|null...],
+"lens":[...],"trunc":k,"sample":first text (clipped)}.
 Resumable, --plan/--shard/--progress as in judge_bench.py.
 usage: python reason_judge.py --model qwen3vl8b_thinking --plan p.json --n 4 --max-new-tokens 1536 [--thinking]"""
-import argparse, json, os, re, time, torch
+import argparse, json, os, re, sys, time, torch
 from judge_bench import build, load_model, in_shard, Progress, PAIR
 
 SUFFIX = ("\n\nThink it through, then finish with a final line of the form 'Verdict: A', 'Verdict: B' or 'Verdict: T' "
           "(T if the two are of essentially equal quality).")
 VERD = re.compile(r"verdict\s*[:：]\s*\**\s*([ABT])\b", re.I)
+
+
+def force_verdicts(proc, model, msg, texts, thinking, ids):
+    """One forward pass per unfinished sample: prompt + its reasoning + forced verdict prefix -> log-probs of A/B/T."""
+    prompt = proc.apply_chat_template([msg], tokenize=False, add_generation_prompt=True, enable_thinking=thinking)
+    prompt = prompt[0] if isinstance(prompt, list) else prompt
+    imgs = [x["image"] for x in msg[0]["content"] if x["type"] == "image"]
+    out = []
+    for t in texts:
+        close = "\n</think>\n\nVerdict:" if (thinking or "<think>" in t) and "</think>" not in t else "\nVerdict:"
+        kw = dict(text=[prompt + t + close], return_tensors="pt", padding=True)
+        if imgs:
+            kw["images"] = imgs
+        inp = proc(**kw).to("cuda:0")
+        with torch.inference_mode():
+            lp = torch.log_softmax(model(**inp).logits[0, -1, :].float(), -1)
+        out.append({k: torch.logsumexp(lp[ids[k]], 0).item() for k in "ABT"})     # "A" and " A" variants
+    return out
 
 
 def parse(t):
@@ -52,6 +73,10 @@ def main():
         prog.write(0, "done", force=True); print("DONE 0"); return
     proc, model = load_model(a.model, a.model_path, a.device_map, text_llm=a.text_llm)
     files = {k: open(e["out"], "a", buffering=1) for k, e in enumerate(plan)}
+    tok = proc.tokenizer
+    kid = {c: torch.tensor(sorted({tok.encode(c, add_special_tokens=False)[0], tok.encode(" " + c, add_special_tokens=False)[0]}),
+                           device="cuda:0") for c in "ABT"}
+    nerr = 0
     t0 = time.time(); s = 0; bs = a.bs
     while s < len(jobs):
         B = jobs[s:s + bs]
@@ -70,28 +95,37 @@ def main():
             txt = proc.batch_decode(gen, skip_special_tokens=True)
             eos = proc.tokenizer.eos_token_id; pad = proc.tokenizer.pad_token_id
             lens = [int(((x != pad) & (x != eos)).sum()) for x in gen]
+            V = [parse(t) for t in txt]; FL = [None] * len(txt)
+            for j in range(len(B)):
+                miss = [i for i in range(j * a.n, (j + 1) * a.n) if V[i] is None]
+                if miss:
+                    lps = force_verdicts(proc, model, msgs[j], [txt[i] for i in miss], a.thinking, kid)
+                    for i, l in zip(miss, lps):
+                        FL[i] = l; V[i] = max(l, key=l.get)
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
             if bs == 1:
                 for k, r, o in B:
                     files[k].write(json.dumps({"id": r["id"], "cond": "reason", "order": o, "error": "oom"}) + "\n")
-                s += 1; bs = a.bs
+                nerr += len(B); s += 1; bs = a.bs
             else:
                 bs = max(1, bs // 2)
             continue
         except Exception as e:
             for k, r, o in B:
                 files[k].write(json.dumps({"id": r["id"], "cond": "reason", "order": o, "error": repr(e)[:200]}) + "\n")
-            s += len(B); continue
+            nerr += len(B); s += len(B); continue
         for j, (k, r, o) in enumerate(B):
-            T = txt[j * a.n:(j + 1) * a.n]; L = lens[j * a.n:(j + 1) * a.n]
-            V = [parse(t) for t in T]
-            files[k].write(json.dumps({"id": r["id"], "cond": "reason", "order": o, "verdicts": V, "lens": L,
+            sl = slice(j * a.n, (j + 1) * a.n); T = txt[sl]; L = lens[sl]
+            files[k].write(json.dumps({"id": r["id"], "cond": "reason", "order": o, "verdicts": V[sl],
+                                       "forced": [int(x is not None) for x in FL[sl]], "forced_lp": FL[sl], "lens": L,
                                        "trunc": sum(l >= a.max_new_tokens for l in L), "sample": T[0][-3000:]},
                                       ensure_ascii=False) + "\n")
         s += len(B); prog.write(s, current=plan[B[-1][0]]["items"])
         bs = min(a.bs, bs * 2) if bs < a.bs else bs
-    prog.write(len(jobs), "done", force=True); print("DONE", round(time.time() - t0), flush=True)
+    prog.write(len(jobs), "done", force=True); print("DONE", round(time.time() - t0), "errors", nerr, flush=True)
+    if nerr:
+        sys.exit(3)          # the scheduler retries the task; the resume step redoes only the error rows
 
 
 if __name__ == "__main__":
