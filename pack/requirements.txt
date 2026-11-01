@@ -1,0 +1,11 @@
+transformers==5.16.1
+accelerate==1.14.0
+tokenizers==0.23.2
+safetensors==0.8.0
+huggingface_hub[cli]==1.33.0
+pillow==12.3.0
+numpy==2.5.2
+scipy==1.18.1
+PyYAML==6.0.3
+av==18.1.0
+peft

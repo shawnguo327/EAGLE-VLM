@@ -1,0 +1,101 @@
+# EAGLE-V run configuration (8x H100 or any multi-GPU box). Paths are relative to this file.
+paths:
+  data: data          # items/*.jsonl + images/ (shipped in the pack)
+  models: models      # ./run.sh models downloads here
+  runs: runs          # outputs, logs, progress
+  code: code          # EAGLE-VLM code snapshot
+  return: return      # ./run.sh collect writes the tarball to bring back here
+
+python: python        # interpreter for the tasks (e.g. /opt/conda/envs/eaglev/bin/python); must import torch+transformers
+gpus: all             # or a list, e.g. [0,1,2,3]
+retries: 2            # a failed task is restarted (resumes) up to this many times
+defaults: {bs: 8}
+
+# name -> HF repo; gpus = GPUs per process (>1 spreads the model with device_map=auto); bs = batch size
+models:
+  qwen3vl2b:     {repo: Qwen/Qwen3-VL-2B-Instruct,     gpus: 1, bs: 16}
+  qwen3vl4b:     {repo: Qwen/Qwen3-VL-4B-Instruct,     gpus: 1, bs: 16}
+  qwen3vl8b:     {repo: Qwen/Qwen3-VL-8B-Instruct,     gpus: 1, bs: 8}
+  qwen3vl32b:    {repo: Qwen/Qwen3-VL-32B-Instruct,    gpus: 2, bs: 4}
+  qwen35_9b:     {repo: Qwen/Qwen3.5-9B,               gpus: 1, bs: 8}
+  qwen25vl3b:    {repo: Qwen/Qwen2.5-VL-3B-Instruct,   gpus: 1, bs: 16}
+  qwen25vl7b:    {repo: Qwen/Qwen2.5-VL-7B-Instruct,   gpus: 1, bs: 8}
+  qwen25vl32b:   {repo: Qwen/Qwen2.5-VL-32B-Instruct,  gpus: 2, bs: 4}
+  qwen25vl72b:   {repo: Qwen/Qwen2.5-VL-72B-Instruct,  gpus: 4, bs: 4}
+  internvl35_1b: {repo: OpenGVLab/InternVL3_5-1B-HF,   gpus: 1, bs: 16}
+  internvl35_2b: {repo: OpenGVLab/InternVL3_5-2B-HF,   gpus: 1, bs: 16}
+  internvl35_4b: {repo: OpenGVLab/InternVL3_5-4B-HF,   gpus: 1, bs: 16}
+  internvl35_8b: {repo: OpenGVLab/InternVL3_5-8B-HF,   gpus: 1, bs: 8}
+  internvl35_14b: {repo: OpenGVLab/InternVL3_5-14B-HF, gpus: 1, bs: 8}
+  internvl35_38b: {repo: OpenGVLab/InternVL3_5-38B-HF, gpus: 2, bs: 4}
+
+datasets: [pp, mmrb2, genai_arena, mllm_judge, editreward, vlrb, mmrb, mjbench, imagerewarddb, qbench2, mmrlhf]
+
+# Conditions (see code/eaglevlm/judge_bench.py): bin (A/B), tri (A/B/T), str7 (1..7), score (1..9 pointwise),
+# bin_hires (1536 px; InternVL tiling), bin_desc (describe-then-judge), bin_blind, bin_lowres.
+phases:
+  smoke:                      # 2 pairs per dataset, 3 small models: run this first (~5 min)
+    type: judge
+    conds: bin,tri,str7,score
+    limit: 2
+    shards: 1
+    models: [qwen3vl2b, internvl35_1b, qwen25vl3b]
+
+  smoke_big:                  # 1 pair per dataset for every multi-GPU model (loading/sharding check)
+    type: judge
+    conds: bin,tri
+    limit: 1
+    shards: 1
+    models: [qwen3vl32b, qwen25vl32b, qwen25vl72b, internvl35_38b]
+
+  scale:                      # size ladder in 3 families: does uncertainty about "close" vs "cannot tell" change with size?
+    type: judge
+    conds: bin,score,tri,str7
+    models: [qwen3vl2b, qwen3vl4b, qwen3vl32b, qwen25vl3b, qwen25vl32b, internvl35_1b, internvl35_2b,
+             internvl35_4b, internvl35_14b, internvl35_38b, qwen25vl72b]
+    # 8B/9B/7B judges already have bin,score,tri,str7 from the local run (phase A on bjserver)
+
+  B:                          # last-token hidden states for linear probes (tie vs not; error vs not)
+    type: judge
+    conds: bin,tri
+    hidden: "0.25,0.5,0.75,1.0"
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b, qwen25vl72b]
+
+  C_hires:                    # more visual evidence: 1536 px (+ InternVL dynamic tiling)
+    type: judge
+    conds: bin_hires,tri
+    tiling: true
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+    # note: with tiling on, InternVL's tri here is also tiled; compare with tri from phase A for the evidence effect
+
+  C_desc:                     # describe-then-judge, step 1: each judge describes the images itself
+    type: describe
+    max_new_tokens: 256
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+
+  C_judge:                    # step 2: judge with its own descriptions added
+    type: judge
+    conds: bin_desc
+    desc_from: C_desc
+    # describer: qwen3vl32b   # uncomment to give every judge the 32B model's descriptions instead
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+
+  D:                          # LoRA: fit the judge's A/B/T distribution to human preference distributions (2 folds)
+    type: train
+    gpus_per_task: 4          # torchrun DDP; the two folds run side by side on 8 GPUs
+    folds: [0, 1]
+    epochs: 1
+    lr: 1.0e-4
+    lora_r: 16
+    bs: 2
+    grad_accum: 4
+    bothbad_tie: 1
+    models: [qwen3vl8b, internvl35_8b]
+
+  D_smoke:                    # 16 training pairs, 8 eval pairs: run before D
+    type: train
+    gpus_per_task: 1
+    folds: [0]
+    max_train: 16
+    max_eval: 8
+    models: [qwen3vl8b]
