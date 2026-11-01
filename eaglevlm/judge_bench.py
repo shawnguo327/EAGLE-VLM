@@ -99,10 +99,10 @@ def main():
     a = ap.parse_args()
     from transformers import AutoProcessor, AutoModelForImageTextToText
     mp = MODELS[a.model]
-    proc = AutoProcessor.from_pretrained(mp)
+    # InternVL: one 448px tile per image (no dynamic tiling), keeping the visual token budget comparable to Qwen.
+    # Must be set at construction: per-call processor_kwargs are ignored in batched apply_chat_template.
+    proc = AutoProcessor.from_pretrained(mp, **({"crop_to_patches": False} if "internvl" in a.model else {}))
     proc.tokenizer.padding_side = "left"
-    # InternVL: one 448px tile per image (no dynamic tiling), keeping the visual token budget comparable to Qwen
-    pkw = {"processor_kwargs": {"crop_to_patches": False}} if "internvl" in a.model else {}
     model = AutoModelForImageTextToText.from_pretrained(mp, dtype=torch.bfloat16, device_map={"": "cuda:0"},
                                                         attn_implementation="sdpa").eval()
     tok = proc.tokenizer
@@ -137,7 +137,7 @@ def main():
             try:
                 msgs = [build(*j) for j in B]
                 inp = proc.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True, return_dict=True,
-                                               return_tensors="pt", padding=True, enable_thinking=False, **pkw).to("cuda:0")
+                                               return_tensors="pt", padding=True, enable_thinking=False).to("cuda:0")
                 with torch.inference_mode():
                     lp = torch.log_softmax(model(**inp).logits[:, -1, :].float(), -1)
             except torch.cuda.OutOfMemoryError:
