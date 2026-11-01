@@ -1,7 +1,7 @@
 """LMArena human preference 55k (lmarena-ai/arena-human-preference-55k, public) -> items/arena55k.jsonl  [kind=text]
 Text-domain analogue of GenAI-Arena: one crowd vote per battle (winner_model_a / winner_model_b / winner_tie).
 Filter: single-turn, mostly-ASCII prompt and responses (English proxy), non-empty, <= 6000 chars each. Water-filled
-over vote type (win / tie) with EAGLEVLM_CAP per type (default 1500 -> up to 3000 pairs, half ties)."""
+over vote type (win / tie) to EAGLEVLM_CAP pairs in total (pack: 3000 -> 1500 ties + 1500 strict)."""
 import sys, pathlib, json; sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import pandas as pd
 from common import *

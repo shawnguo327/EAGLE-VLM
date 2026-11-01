@@ -72,6 +72,7 @@ def tasks_for(C, name):
     for m in ph["models"]:
         spec = C["models"][m]; kind = ph.get("type", "judge")
         g = int(ph.get("gpus_per_task", spec.get("gpus", 1)))
+        excl = kind == "train" or g > 1 or bool(spec.get("exclusive", False))
         if kind == "train":
             folds = ph.get("folds", [0, 1])
             for f in folds:
@@ -86,9 +87,9 @@ def tasks_for(C, name):
                         cmd += ["--" + k.replace("_", "-"), str(ph[k])]
                 T.append(dict(id=tid, model=m, gpus=g, cmd=cmd, log=os.path.join(rdir, "logs", f"{m}.f{f}.log"),
                               progress=os.path.join(rdir, "state", f"{m}.f{f}.progress.json"),
-                              phase=name, after=list(ph.get("after", []))))
+                              phase=name, after=list(ph.get("after", [])), exclusive=True))
             continue
-        S = man.get(m) or int(ph.get("shards", 0)) or max(1, ngpu // g)
+        S = man.get(m) or int(ph.get("shards", 0)) or (max(1, ngpu // g) if excl else ngpu * int(C.get("slots_per_gpu", 1)))
         man[m] = S
         for i in range(S):
             tid = f"{name}/{m}/s{i}"
@@ -125,7 +126,7 @@ def tasks_for(C, name):
             T.append(dict(id=tid, model=m, gpus=g, cmd=cmd, plan=plan, plan_path=plan_p,
                           log=os.path.join(rdir, "logs", f"{m}.s{i}.log"),
                           progress=os.path.join(rdir, "state", f"{m}.s{i}.progress.json"),
-                          phase=name, after=list(ph.get("after", []))))
+                          phase=name, after=list(ph.get("after", [])), exclusive=excl))
     return T, man
 
 
@@ -179,12 +180,29 @@ def daemon(C, phases):
                 return False
         return True
 
-    free = list(gpus); running = {}; head_since = {}
+    SL = int(C.get("slots_per_gpu", 1))
+    slots = {g: SL for g in gpus}; running = {}; head_since = {}
+
+    def fits(t):
+        if t.get("exclusive", True) or SL == 1:
+            return sum(v == SL for v in slots.values()) >= t["gpus"]
+        return any(v > 0 for v in slots.values())
+
+    def take(t):
+        if t.get("exclusive", True) or SL == 1:
+            dev = [g for g in sorted(slots) if slots[g] == SL][: t["gpus"]]
+            for d in dev:
+                slots[d] = 0
+        else:   # one slot; prefer a GPU that is already shared, to keep whole GPUs free for exclusive tasks
+            g = min((g for g in slots if slots[g] > 0), key=lambda g: (slots[g], g)); slots[g] -= 1; dev = [g]
+        return dev
+
+    def release(t):
+        for d in t["devices"]:
+            slots[d] = SL if (t.get("exclusive", True) or SL == 1) else slots[d] + 1
 
     def launch(t):
-        dev = sorted(free)[: t["gpus"]]
-        for d in dev:
-            free.remove(d)
+        dev = take(t)
         env = dict(env0, CUDA_VISIBLE_DEVICES=",".join(map(str, dev)))
         lf = open(t["log"], "a"); lf.write(f"\n=== {time.strftime('%F %T')} start on GPU {dev}\n"); lf.flush()
         p = subprocess.Popen(t["cmd"], env=env, stdout=lf, stderr=subprocess.STDOUT, cwd=P["data"], start_new_session=True)
@@ -197,7 +215,7 @@ def daemon(C, phases):
             rc = t["proc"].poll()
             if rc is None:
                 continue
-            del running[pid]; free += t["devices"]; t.pop("proc")
+            del running[pid]; release(t); t.pop("proc")
             t["ended"] = time.strftime("%Y-%m-%d %H:%M:%S"); t["rc"] = rc
             if rc == 0:
                 t["state"] = "done"
@@ -212,11 +230,11 @@ def daemon(C, phases):
         elig = [t for t in T if t["state"] == "pending" and dep_ok(t)]
         if elig:
             head = elig[0]
-            if len(free) >= head["gpus"]:
+            if fits(head):
                 launch(head); continue
             since = head_since.setdefault(head["id"], time.time())
             if time.time() - since < backfill_s:
-                fit = next((t for t in elig[1:] if t["gpus"] <= len(free)), None)
+                fit = next((t for t in elig[1:] if fits(t)), None)
                 if fit is not None:
                     launch(fit); continue
         if not running and not any(t["state"] == "pending" for t in T):
@@ -418,6 +436,8 @@ def count_calls(C, name):
                     if k in ph.get("kinds", "resp,img,text").split(","):
                         n += 2 * c
         g = int(ph.get("gpus_per_task", spec.get("gpus", 1)))
+        excl = kind == "train" or g > 1 or bool(spec.get("exclusive", False))
+        share = 1 if excl else int(C.get("slots_per_gpu", 1))              # processes sharing one GPU
         sp = float(spec.get("speed", 15))                                  # calls/s per process, images at 768 px
         if kind == "judge":
             sec = n / sp * float(ph.get("cost", 1.0))
@@ -427,7 +447,7 @@ def count_calls(C, name):
             sec = n * ph.get("n", 4) * ph.get("avg_tokens", 700) / float(spec.get("gen_tok_s", 1500))
         else:
             sec = 3600 * float(ph.get("est_hours", 2)) * len(ph.get("folds", [0, 1]))
-        out[m] = (n, sec * g / 3600)
+        out[m] = (n, sec * g / share / 3600)
     return out
 
 
