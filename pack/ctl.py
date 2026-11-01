@@ -87,7 +87,7 @@ def tasks_for(C, name):
                         cmd += ["--" + k.replace("_", "-"), str(ph[k])]
                 T.append(dict(id=tid, model=m, gpus=g, cmd=cmd, log=os.path.join(rdir, "logs", f"{m}.f{f}.log"),
                               progress=os.path.join(rdir, "state", f"{m}.f{f}.progress.json"),
-                              phase=name, after=list(ph.get("after", [])), exclusive=True))
+                              phase=name, after=list(ph.get("after", [])), exclusive=True, wait_for=ph.get("wait_for")))
             continue
         S = man.get(m) or int(ph.get("shards", 0)) or (max(1, ngpu // g) if excl else ngpu * int(C.get("slots_per_gpu", 1)))
         man[m] = S
@@ -126,7 +126,7 @@ def tasks_for(C, name):
             T.append(dict(id=tid, model=m, gpus=g, cmd=cmd, plan=plan, plan_path=plan_p,
                           log=os.path.join(rdir, "logs", f"{m}.s{i}.log"),
                           progress=os.path.join(rdir, "state", f"{m}.s{i}.progress.json"),
-                          phase=name, after=list(ph.get("after", [])), exclusive=excl))
+                          phase=name, after=list(ph.get("after", [])), exclusive=excl, wait_for=ph.get("wait_for")))
     return T, man
 
 
@@ -145,7 +145,7 @@ def daemon(C, phases):
     stop = {"flag": False}
     signal.signal(signal.SIGTERM, lambda *_: stop.update(flag=True))
     env0 = dict(os.environ, EAGLEVLM_DATA=P["data"], PYTHONUNBUFFERED="1", HF_HUB_OFFLINE="1",
-                PYTHONPATH=os.path.join(P["code"], "eaglevlm"))
+                PYTHONPATH=os.path.join(P["code"], "eaglevlm"), **{k: str(v) for k, v in (C.get("env") or {}).items()})
     gpus = gpu_list(C); retries = int(C.get("retries", 2)); backfill_s = 60 * float(C.get("backfill_minutes", 30))
     T, byphase = [], {}
     for name in phases:
@@ -172,6 +172,9 @@ def daemon(C, phases):
         save(name)
 
     def dep_ok(t):
+        w = t.get("wait_for")             # {file, text}: e.g. wait for a job outside this scheduler to finish
+        if w and not (os.path.exists(w["file"]) and w["text"] in open(w["file"], errors="ignore").read()):
+            return False
         for d in t["after"]:
             if d in byphase:
                 if not all(x["state"] == "done" for x in byphase[d]):
@@ -239,7 +242,7 @@ def daemon(C, phases):
                     launch(fit); continue
         if not running and not any(t["state"] == "pending" for t in T):
             break
-        if not running and not elig:
+        if not running and not elig and not any(t.get("wait_for") for t in T if t["state"] == "pending"):
             print("blocked: pending tasks wait for phases that are not done (failed tasks?)", flush=True); break
         time.sleep(5)
     if stop["flag"]:
