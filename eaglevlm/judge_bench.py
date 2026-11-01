@@ -8,6 +8,9 @@ Item schema (one JSON per line in items/<dataset>.jsonl):
   criterion  : short phrase describing what "better" means
   label      : 0 (A better) | 1 (B better) | "tie"
 Conditions: bin (A/B, both orders), score (1-9 pointwise per candidate). Readout = first-token logits.
+Vision probes (pairwise, both orders): bin_blind = question/context images removed (resp items only; measures
+reliance on the language prior), bin_lowres = every image downsampled to LOWRES px on its long side (measures
+dependence on fine visual detail).
 """
 import argparse, json, os, pathlib, time, torch
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
@@ -20,6 +23,7 @@ MODELS = {"qwen3vl8b": PP / "Qwen3-VL-8B-Instruct", "qwen35_9b": PP / "Qwen3.5-9
           "qwen25vl7b": pathlib.Path("/media/shawn/C/nyserver-files/mntstorage/models/Qwen2.5-VL-7B-Instruct"),
           "qwen3vl32b": PP / "Qwen3-VL-32B-Instruct"}
 MAXSIDE = 768
+LOWRES = 112
 MAXCHARS = 4000
 
 BIN_RESP = ("Question: {q}\n\n[Response A]\n{a}\n\n[Response B]\n{b}\n\n"
@@ -33,10 +37,10 @@ SCORE_IMG = ("{q}\nCriterion: {crit} Rate this image on an integer scale from 1 
              "Answer with exactly one digit.")
 
 
-def load_img(p):
+def load_img(p, maxside=MAXSIDE):
     im = Image.open(ROOT / p if not os.path.isabs(p) else p).convert("RGB")
     w, h = im.size
-    s = MAXSIDE / max(w, h)
+    s = maxside / max(w, h)
     if s < 1:
         im = im.resize((max(28, int(w * s)), max(28, int(h * s))), Image.BICUBIC)
     return im
@@ -49,9 +53,17 @@ def clip(t):
 
 def build(r, cond, order):
     c = []
+    ms = LOWRES if cond == "bin_lowres" else MAXSIDE
+    load = lambda p: load_img(p, ms)
+    if cond.startswith("bin"):
+        cond = "bin" if cond != "bin_blind" else "blind"
     if r["kind"] == "resp":
-        for p in r["context"]:
-            c.append({"type": "image", "image": load_img(p)})
+        if cond == "blind":
+            c.append({"type": "text", "text": "[The image(s) for this question are not shown.]"})
+            cond = "bin"
+        else:
+            for p in r["context"]:
+                c.append({"type": "image", "image": load(p)})
         a, b = (r["cand"][0], r["cand"][1]) if order in ("AB", "A") else (r["cand"][1], r["cand"][0])
         if cond == "bin":
             c.append({"type": "text", "text": BIN_RESP.format(q=clip(r["question"]), a=clip(a), b=clip(b), crit=r["criterion"])})
@@ -63,11 +75,11 @@ def build(r, cond, order):
         if r["context"]:
             c.append({"type": "text", "text": "Source image:"})
             for p in r["context"]:
-                c.append({"type": "image", "image": load_img(p)})
+                c.append({"type": "image", "image": load(p)})
         if cond == "bin":
             pair = r["cand"] if order == "AB" else r["cand"][::-1]
             for i, p in enumerate(pair):
-                c += [{"type": "text", "text": f"Image {'AB'[i]}:"}, {"type": "image", "image": load_img(p)}]
+                c += [{"type": "text", "text": f"Image {'AB'[i]}:"}, {"type": "image", "image": load(p)}]
             c.append({"type": "text", "text": BIN_IMG.format(q=q, crit=r["criterion"])})
         else:
             p = r["cand"][0] if order == "A" else r["cand"][1]
@@ -99,7 +111,9 @@ def main():
     jobs = []
     for r in rows:
         for c in a.conds.split(","):
-            for o in (("AB", "BA") if c == "bin" else ("A", "B")):
+            if c == "bin_blind" and r["kind"] != "resp":
+                continue
+            for o in (("AB", "BA") if c.startswith("bin") else ("A", "B")):
                 jobs.append((r, c, o))
     outp = pathlib.Path(a.out)
     done = set()
@@ -140,7 +154,7 @@ def main():
                 s += len(B)
                 continue
             for (r, c, o), row in zip(B, lp):
-                keys = ["A", "B"] if c == "bin" else [str(i) for i in range(1, 10)]
+                keys = ["A", "B"] if c.startswith("bin") else [str(i) for i in range(1, 10)]
                 raw = {k: row[ids[k]].item() for k in keys}
                 f.write(json.dumps({"id": r["id"], "cond": c, "order": o, "lp": raw,
                                     "mass": float(sum(torch.exp(torch.tensor(list(raw.values())))))}) + "\n")
