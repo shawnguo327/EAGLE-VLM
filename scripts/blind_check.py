@@ -1,9 +1,9 @@
 import sys, json, glob, numpy as np
-sys.argv = sys.argv[:1] + ["--out", "/tmp/_av_scratch"]
+_A = sys.argv[1:]; sys.argv = sys.argv[:1] + ["--out", "/tmp/_av_scratch"]
 import action_value as av
 av.DIRS = ["results", "results_A"] + glob.glob("/media/shawn/C/papers/VLM/judgebench_local/runs/*/raw")
 rng = np.random.default_rng(0)
-M, O = "qwen3vl8b", "internvl35_8b"
+M, O = (_A + ["qwen3vl8b", "internvl35_8b"])[:2] if len(_A) != 1 else (_A[0], "qwen3vl8b")
 def boot(x):
     x = np.asarray(x, float); n = len(x)
     if n == 0: return "-"
