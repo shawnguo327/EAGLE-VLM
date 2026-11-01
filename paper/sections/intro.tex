@@ -1,0 +1,28 @@
+\section{Introduction}\label{sec:intro}
+
+Multimodal judges have moved from evaluation side-tools to load-bearing infrastructure.
+They decide which images a best-of-$N$ generator releases \citep{yin2026calibrate,seo2026when}, replace human votes in visual-generation arenas \citep{li2026ksort,li2026genarena}, label preference pairs for multimodal DPO \citep{yu2024rlaifv}, and serve as rewards for GRPO-style training \citep{wang2025prefgrpo}.
+Yet even frontier VLM judges agree with humans only 66--75\% of the time on recent benchmarks, against more than 90\% for humans \citep{hu2025multimodal}.
+They also carry systematic biases: they flip verdicts when the candidates are swapped \citep{huang2026do,chen2024mllmasajudge}, prefer the more informative answer even when it contradicts the image \citep{zou2026when}, and pick a winner between equally good candidates \citep{khan2026seeing}. Policies trained against them learn to exploit these weaknesses \citep{yao2026multimodal}.
+
+For text judges, the community has converged on a principled response: \emph{selective} judging.
+The judge reports a confidence, and a threshold calibrated on a small human-labelled set guarantees that the error among accepted verdicts stays below a target $\alpha$. Everything else is abstained on or escalated.
+Trust-or-Escalate \citep{jung2024trust} introduced the guarantee and a cascade of increasingly strong judges.
+SCOPE \citep{badshah2026scope} showed that \emph{bidirectional preference entropy}, the entropy of the preference averaged over both presentation orders, is a better confidence than verbalised or single-order scores.
+Our earlier work, EAGLE \citep{eagle2026}, used the same order-averaged margin $\dpconf=|2\pbar-1|$ to decide when to fall back from pairwise to pointwise judging. $\dpconf$ is a monotone transform of SCOPE's entropy and induces the same ranking.
+None of these methods has been studied for judges that must \emph{look}. The two closest multimodal works, an audit of order-consistency filtering for image selection \citep{seo2026when} and conformal score intervals for VLM judges \citep{kumar2026vlm}, explicitly provide no selective guarantee.
+
+\paragraph{Does the text recipe transfer to vision?}
+\Cref{sec:diagnostic} answers this with a diagnostic study across \TBD{ten} public pairwise multimodal judge benchmarks and Place Pulse~2.0 \citep{dubey2016deep}. The benchmarks cover response judging, text-to-image, editing and image quality.
+The answer is ``partly''.
+Order-symmetric confidence still ranks errors. In probability space, however, it saturates, so most pairs are tied at the maximum and a conformal threshold has nothing to sort them by.
+It is also unrelated to whether \emph{humans} disagree on a pair (Spearman $\rho\approx 0$ on Place Pulse).
+Judge errors are shared across model families (error correlation .65--.73), so adding a second VLM brings less new information than it appears to.
+
+\paragraph{Contributions.}
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+  \item \textbf{A diagnostic of order-symmetric confidence for VLM judges} (\cref{sec:diagnostic}): ranking quality, saturation, scale calibration, tie behaviour and alignment with human disagreement, across 11 datasets and 3 open judges. To our knowledge this is the first such study, and the first to report saturation.
+  \item \textbf{\eaglev{}, a risk-controlled escalation ladder} (\cref{sec:method}): pairwise $\rightarrow$ pointwise $\rightarrow$ stronger judge $\rightarrow$ human, with thresholds chosen jointly by fixed-sequence testing on a Clopper--Pearson bound. This gives a finite-sample guarantee on the error among all machine-decided pairs. Log-odds confidence removes saturation at no extra cost. A cheap \emph{protocol} change (pointwise) is tried before a costly \emph{model} change or a human.
+  \item \textbf{Confidence-routed prediction-powered ranking} (\cref{sec:ranking}): Bradley--Terry/Davidson rankings that combine all judge verdicts with a small set of human labels, routed by judge uncertainty. The confidence intervals are valid regardless of judge quality. We also give a simple bound (\cref{prop:cap}) showing that the gain is capped by the item-explainable share of vote variance. This predicts large gains on benchmarks with verified labels and small gains on crowd perception votes, matching what we observe.
+  \item \textbf{Practical guidance} (\cref{sec:applications}) for the main uses of VLM judges: benchmark evaluation, arenas, best-of-$N$ selection, preference-data curation and survey triage in urban perception.
+\end{enumerate}

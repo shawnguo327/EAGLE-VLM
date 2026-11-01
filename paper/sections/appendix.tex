@@ -1,0 +1,15 @@
+\section{Additional Diagnostic Results}\label{app:more}
+\todo{Tables 2-style for Qwen3.5-9B and Qwen2.5-VL-7B; per-subset breakdowns; tie analysis.}
+
+\section{Prompts}\label{app:prompts}
+\paragraph{Pairwise, response judging.}
+\texttt{Question: \{q\} [Response A] \{a\} [Response B] \{b\} You are judging the two responses to the question about the image(s). Criterion: \{crit\} Which response is better? Answer with exactly one letter: A or B.}
+
+\paragraph{Pairwise, image judging.}
+\texttt{[Source image:] Image A: <img> Image B: <img> \{q\} Criterion: \{crit\} Which image is better, Image A or Image B? Answer with exactly one letter: A or B.}
+
+\paragraph{Pointwise.}
+\texttt{... Rate this response/image on an integer scale from 1 (very poor) to 9 (excellent). Answer with exactly one digit.}
+
+\section{Implementation}
+Images are resized so that the long side is at most 768 pixels, and text is clipped at 4{,}000 characters. Judges run in \texttt{bfloat16} with HF Transformers, and readout is the log-softmax over the full vocabulary at the first generated position. Code: \texttt{judge\_bench.py}, \texttt{analyze\_bench.py}, \texttt{eaglev\_stats.py}.

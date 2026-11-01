@@ -1,0 +1,77 @@
+\section{Does Order-Symmetric Confidence Transfer to Vision?}\label{sec:diagnostic}
+
+\paragraph{Benchmarks.}
+\Cref{tab:data} lists the \TBD{ten} public judge benchmarks we converted to a common pairwise format. We subsample to at most 1{,}500 pairs per dataset, stratified by subset.
+They cover \emph{response judging}, where the candidates are text answers about images (VL-RewardBench, Multimodal RewardBench, MM-RLHF-RewardBench, MLLM-as-a-Judge pairwise), and \emph{image judging} (GenAI-Arena, MJ-Bench, MMRB2 text-to-image and editing, ImageRewardDB, Q-Bench2, EditReward-Bench).
+GenAI-Arena, MLLM-as-a-Judge and EditReward-Bench contain human ties (\TBD{868} in total), which we use to study tie behaviour.
+Place Pulse 2.0 contributes 1{,}500 strict votes across six attributes, plus 713 multi-vote pairs that measure human disagreement.
+
+\paragraph{Judges.}
+Qwen3-VL-8B-Instruct \citep{bai2025qwen3vl}, Qwen3.5-9B (natively multimodal) and Qwen2.5-VL-7B-Instruct \citep{bai2025qwen25vl}, run in non-thinking mode with first-token readout. \todo{add one API judge (GPT-5-mini or Gemini Flash) on a 300-pair subset per dataset as the ``stronger judge'' rung.}
+
+\begin{table}[t]
+\centering\small
+\caption{Pairwise judge benchmarks used in this study (converted; ``used'' is after subsampling).}\label{tab:data}
+\begin{tabular}{llrrl}
+\toprule
+Dataset & Judged object & Used (full) & Ties & Label source\\
+\midrule
+VL-RewardBench \citep{li2024vlrewardbench} & response & 1{,}247 (1{,}247) & 0 & verified / human\\
+Multimodal RewardBench \citep{yasunaga2025multimodal} & response & 1{,}500 (4{,}711) & 0 & expert\\
+MM-RLHF-RewardBench & response & 170 (170) & 0 & human\\
+MLLM-as-a-Judge (pair) \citep{chen2024mllmasajudge} & response & 1{,}500 (7{,}756) & 313 & human\\
+GenAI-Arena \citep{jiang2024genai} & gen./edited image & 1{,}500 (4{,}175) & 537 & crowd vote\\
+MJ-Bench (align., safety) \citep{chen2024mjbench} & T2I image & 1{,}401 (1{,}401) & 0 & human\\
+MMRB2 (T2I, edit) \citep{hu2025multimodal} & gen./edited image & 1{,}500 (2{,}000) & 0 & expert\\
+ImageRewardDB (test) & T2I image & 1{,}500 (6{,}399) & 0 & expert rank\\
+Q-Bench2 (pair) & image quality & 442 (1{,}000) & 0 & expert\\
+EditReward-Bench (2-pair) & edited image & 133 (133) & 18 & human\\
+Place Pulse 2.0 \citep{dubey2016deep} & street view & 1{,}500 (1.34M) & 203k (pool) & crowd vote\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Metrics.}
+We report accuracy on strict pairs, swap consistency, AUROC of each confidence score for predicting a correct verdict, accuracy by $\dpconf$ quintile, the saturation share $\Pr[\dpconf\ge .95]$, and expected calibration error of $(1+\dpconf)/2$ as a probability of being correct.
+
+\begin{table}[t]
+\centering\small
+\caption{Diagnostic results for Qwen3-VL-8B (other judges in \cref{app:more}). Q1/Q5: accuracy in the lowest/highest $\dpconf$ quintile.}\label{tab:diag}
+\begin{tabular}{lcccccccc}
+\toprule
+Dataset & Acc & Swap & Q1 & Q5 & AUROC $\dpconf$ & AUROC $\lambda$ & Sat. & ECE\\
+\midrule
+VL-RewardBench & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+Multimodal RB & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+MM-RLHF-RB & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+MLLM-as-a-Judge & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+GenAI-Arena & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+MJ-Bench & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+MMRB2 & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+ImageRewardDB & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+Q-Bench2 & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+EditReward-Bench & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+Place Pulse 2.0 & .645--.649$^\dagger$ & \TBD{} & $\approx$.51 & $\approx$.80 & .60--.64$^\dagger$ & \TBD{} & $\approx$.60 & \TBD{}\\
+\bottomrule
+\multicolumn{9}{l}{\footnotesize $^\dagger$Preliminary range over the three judges (pilot run, 2026-10-30).}
+\end{tabular}
+\end{table}
+
+\paragraph{Finding 1: confidence ranks errors.}
+On Place Pulse, accuracy rises monotonically from about .51 in the lowest $\dpconf$ quintile to about .80 in the highest, with AUROC .60--.64 for all three judges.
+\todo{state whether this holds on all ten benchmarks; expected weaker on image-generation sets where ties and near-duplicates are common.}
+
+\paragraph{Finding 2: saturation in probability space.}
+About 60\% of Place Pulse pairs have $\dpconf\approx1$, and the judge is right on only about 80\% of them.
+A conformal threshold on $\dpconf$ cannot separate these pairs, so at tight $\alpha$ the certified coverage drops sharply (\cref{sec:experiments}).
+The log-odds $\lambda$ restores an ordering inside the saturated mass. \todo{report AUROC and coverage gain of $\lambda$ over $\dpconf$, especially inside the top bin.}
+
+\paragraph{Finding 3: blind to human disagreement.}
+On the 713 Place Pulse pairs with several votes, $\dpconf$ is uncorrelated with the human split (Spearman $\rho\approx0$). The judge's confidence measures the judge's own instability, not whether humans find the pair ambiguous.
+This matters for ranking (\cref{sec:ranking}): a judge that does not model human vote noise cannot reduce the variance that this noise creates.
+
+\paragraph{Finding 4: ties are absorbed, never declared.}
+When offered a tie option, the judges never choose it on Place Pulse, although humans tie on 13\% of comparisons. In text judges, swap-inconsistent pairs flow into ``tie'' \citep{eagle2026}. \todo{GenAI-Arena / MLLM-as-a-Judge: AUROC of low $\dpconf$ for detecting human ties.}
+
+\paragraph{Finding 5: pointwise is a different, not worse, channel.}
+On Place Pulse, pointwise scoring alone (.650--.666) matches or beats pairwise (.645--.649). On low-$\dpconf$ pairs where the two protocols disagree, \TBD{pointwise is right x\% of the time}. Errors are correlated across judges (.65--.73), so a second VLM is a less independent check than a second protocol \todo{verify the protocol-vs-model error correlation claim on the benchmarks}.

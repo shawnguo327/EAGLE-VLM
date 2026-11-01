@@ -1,0 +1,29 @@
+\section{Confidence-Routed Prediction-Powered Rankings}\label{sec:ranking}
+
+Many uses of judges need an aggregate rather than per-pair verdicts: a leaderboard of generators, or perceptual scores for thousands of street views.
+Let the comparisons be pairs $(i,j)$ of systems or images. A Bradley--Terry model \citep{bradley1952rank} has $\Pr[i\succ j]=\sigma(\theta_i-\theta_j)$; the Davidson model adds a tie parameter $\nu$ \citep{davidson1970extending}.
+The judge gives a soft label $\hat y=\pbar$ for every comparison. Humans label a subset chosen with known propensities $\pi_k$.
+The active PPI estimator \citep{zrnic2024active,angelopoulos2023ppi} minimises
+\begin{equation}\label{eq:ppibt}
+  L_\lambda(\theta)=\sum_{k} \lambda\,\ell(\theta;\hat y_k)+\sum_k \frac{\xi_k}{\pi_k}\Big[\ell(\theta;y_k)-\lambda\,\ell(\theta;\hat y_k)\Big],
+\end{equation}
+where $\ell$ is the BT (or Davidson) negative log-likelihood, $\xi_k\sim\mathrm{Bern}(\pi_k)$ indicates a human label, and $\lambda\in[0,1]$ is tuned to minimise variance (PPI++).
+Because the human term is unbiased, the estimate is consistent and its confidence intervals are valid for \emph{any} judge. A bad judge costs efficiency, never validity. Setting $\pi_k\propto\sqrt{\hat y_k(1-\hat y_k)}$ routes the human budget to the comparisons where the judge is uncertain, which is the active-inference allocation under a calibrated judge.
+
+\paragraph{How much can a judge help?}
+The variance of the rectifier depends on $\Ex[(y-\hat y)^2]$. For a single human vote with $\eta(x)=\Pr[y=1\mid x]$, no predictor can do better than $\Ex[\eta(1-\eta)]$:
+\begin{proposition}[Aleatoric cap]\label{prop:cap}
+For any judge $f$, $\Ex[(y-f(x))^2]\ge\Ex[\eta(x)(1-\eta(x))]$. Hence the asymptotic variance reduction of PPI ($\lambda=1$, uniform labelling) over the human-only estimator of a win rate is at most
+\begin{equation}
+  1-\frac{\Ex[\eta(1-\eta)]}{\mathrm{Var}(y)}=\frac{\mathrm{Var}(\eta(x))}{\mathrm{Var}(y)},
+\end{equation}
+the fraction of vote variance explainable from the pair.
+\end{proposition}
+\begin{proof}
+$\Ex[(y-f)^2\mid x]=\eta(1-\eta)+(\eta-f)^2$. Take expectations and use $\mathrm{Var}(y)=\Ex[\eta(1-\eta)]+\mathrm{Var}(\eta)$.
+\end{proof}
+\noindent On benchmarks with verified labels ($\eta\in\{0,1\}$), the cap is 1 and a good judge can replace most human labels.
+On crowd perception votes the cap is low: when the two images are similar, $\eta$ is near $1/2$ for most pairs.
+The cap can be estimated directly from multi-vote pairs, which makes it a cheap diagnostic of ``can a judge help here?'' before running any judge.
+\todo{estimate $\mathrm{Var}(\eta)/\mathrm{Var}(y)$ on Place Pulse multi-vote pairs (per attribute) and on GenAI-Arena if repeated battles exist.}
+Finding~3 adds a second limit: the judge's confidence is unrelated to $\eta$, so even the routing cannot target the pairs that humans find hard.

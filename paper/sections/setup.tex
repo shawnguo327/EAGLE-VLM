@@ -1,0 +1,18 @@
+\section{Setup: Order-Symmetric Pairwise Judging}\label{sec:setup}
+
+An item is $x=(q, c, a_0, a_1)$: an instruction or question $q$, optional context images $c$ (the question image, or the source image for edits), and two candidates $a_0,a_1$, which are either responses or images.
+A human label $y\in\{0,1,\text{tie}\}$ says which candidate is better.
+A VLM judge $J$ is prompted to answer with a single letter. We read the first-token log-probabilities $\ell_A,\ell_B$ in both presentation orders:
+\begin{equation}
+  p_{\to}=\sigma(\ell_A^{(a_0,a_1)}-\ell_B^{(a_0,a_1)}),\qquad
+  p_{\leftarrow}=\sigma(\ell_B^{(a_1,a_0)}-\ell_A^{(a_1,a_0)}),\qquad
+  \pbar=\tfrac12(p_{\to}+p_{\leftarrow}).
+\end{equation}
+The verdict is $\hat y=\mathbb 1[\pbar>1/2]$. Three confidence scores derive from the same two calls:
+\begin{align}
+  \dpconf &= |2\pbar-1| \quad\text{(EAGLE; rank-equivalent to SCOPE's } 1-H(\pbar)\text{)},\\
+  \lambda &= \tfrac12\big|(\ell_A^{\to}-\ell_B^{\to})+(\ell_B^{\leftarrow}-\ell_A^{\leftarrow})\big| \quad\text{(order-averaged log-odds)}.
+\end{align}
+$\lambda$ and $\dpconf$ agree in sign, but they differ in ordering whenever both orders are confident: in floating point $\dpconf$ collapses to 1, while $\lambda$ keeps separating pairs. They also differ when the two orders disagree.
+For the pointwise protocol, the judge rates each candidate on a 1--9 scale. We take the expected score $s_k=\sum_j j\cdot P(j\mid a_k)$ and the margin $m=s_0-s_1$.
+All readouts are single forward passes without generation. The full protocol costs four forward passes per pair.

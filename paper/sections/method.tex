@@ -1,0 +1,47 @@
+\section{\eaglev{}: Risk-Controlled Escalation}\label{sec:method}
+
+\paragraph{Ladder.}
+\eaglev{} processes each pair through a sequence of rungs $r=1,\dots,R$. Each rung has a verdict $\hat y_r$ and a confidence $c_r$, plus a final human rung.
+In our instantiation:
+(1) the pairwise judge with confidence $\lambda$;
+(2) the same model's pointwise margin $|m|$, which costs two extra forward passes;
+(3) optionally a stronger judge, for example an API model in pairwise mode with its own order-averaged confidence;
+(4) a human.
+A pair stops at the first rung $r$ with $c_r\ge t_r$. The thresholds $t=(t_1,\dots,t_{R-1})$ define the system.
+The selective risk is the error rate among machine-decided pairs:
+\begin{equation}
+  \mathcal R(t)=\Pr\big[\hat y_{r(x)}\neq y \;\big|\; r(x)<R\big],
+\end{equation}
+where $r(x)$ is the stopping rung. We want to maximise automation $\Pr[r(x)<R]$ (or minimise expected cost) subject to $\mathcal R(t)\le\alpha$.
+
+\paragraph{Calibration with a guarantee.}
+Let $\mathcal D_{\rm cal}$ be $n$ human-labelled pairs, exchangeable with test pairs.
+Following Learn-then-Test \citep{angelopoulos2021learn}, we fix in advance a path of threshold vectors $t^{(1)}\succeq t^{(2)}\succeq\dots\succeq t^{(K)}$, ordered from strict to lenient.
+We use equal-quantile paths: $t_r^{(k)}$ is the $(1-\kappa_k)$-quantile of $c_r$ on $\mathcal D_{\rm cal}$, with $\kappa_k$ increasing from 5\% to 100\%. Because the path depends on $\mathcal D_{\rm cal}$, we construct it on a separate split or treat it as fixed in rank space \todo{state precisely; rank-space paths are fine under exchangeability}.
+For each $k$ we test $H_k:\mathcal R(t^{(k)})>\alpha$ with the one-sided Clopper--Pearson bound \citep{clopper1934use} on the number of errors among machine-decided calibration pairs. We walk the path and stop at the first $k$ that fails to reject.
+\begin{proposition}[Fixed-sequence guarantee]\label{prop:ltt}
+Let $\hat k$ be the last rejected index. Then $\Pr\big[\mathcal R(t^{(\hat k)})\le\alpha\big]\ge1-\delta$.
+\end{proposition}
+\noindent This is the fixed-sequence-testing instance of Learn-then-Test: each test is valid at level $\delta$, and the sequence stops at the first non-rejection, so the family-wise error rate is at most $\delta$.
+The guarantee covers the whole ladder jointly. Adding the pointwise rung therefore cannot break validity. It can only change how many pairs are certified.
+
+\paragraph{Why a protocol rung before a model rung.}
+Trust-or-Escalate escalates across \emph{models} \citep{jung2024trust}. With VLM judges, errors are strongly correlated across model families (\cref{sec:diagnostic}), so a second model often repeats the first one's mistake. The pointwise protocol has different failure modes: it is immune to position bias and to the forced-choice bias \citep{khan2026seeing}, and it costs two forward passes of the same model.
+\eaglev{} therefore tries the cheaper, more independent channel first.
+
+\paragraph{Ties.}
+With the Davidson model \citep{davidson1970extending}, human ties enter the ranking likelihood (\cref{sec:ranking}). For selective risk we report two conventions: (a) ties excluded, and (b) any strict verdict on a human tie counts as half an error. \todo{decide; (b) is closer to how arenas score.}
+
+\begin{algorithm}[t]
+\caption{\eaglev{} calibration (fixed-sequence over an equal-quantile path)}\label{alg:cal}
+\begin{algorithmic}[1]
+\Require calibration pairs with rung confidences $c_{r,i}$ and errors $e_{r,i}$; target $\alpha$; level $\delta$; coverage grid $\kappa_1<\dots<\kappa_K$
+\State $t^\star\gets(\infty,\dots,\infty)$ \Comment{everything to humans}
+\For{$k=1,\dots,K$}
+  \State $t_r\gets$ the $(1-\kappa_k)$-quantile of $\{c_{r,i}\}$ for each machine rung $r$
+  \State route each pair to its first rung with $c_{r,i}\ge t_r$; let $m$ be the number of machine-decided pairs and $E$ their errors
+  \If{$m>0$ \textbf{and} $\mathrm{CP}^{+}_{1-\delta}(E,m)\le\alpha$} \State $t^\star\gets t$ \Else\ \textbf{break} \EndIf
+\EndFor
+\State \Return $t^\star$
+\end{algorithmic}
+\end{algorithm}

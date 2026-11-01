@@ -1,0 +1,48 @@
+\documentclass[11pt]{article}
+% Venue-neutral draft. To submit: swap in the ECAI / IJCAI / ICME class (see README.md); content is in sections/.
+\usepackage[margin=1in]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs,multirow,array,xcolor,graphicx,enumitem}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage[capitalise]{cleveref}
+\usepackage{algorithm,algpseudocode}
+
+\newtheorem{proposition}{Proposition}
+\newtheorem{definition}{Definition}
+\theoremstyle{remark}\newtheorem{remark}{Remark}
+
+% ---- drafting macros: every number that still has to come from the server runs is \TBD{...}
+\newcommand{\TBD}[1]{\textcolor{red}{[#1]}}
+\newcommand{\todo}[1]{\textcolor{orange}{\textbf{TODO:} #1}}
+\newcommand{\dpconf}{\Delta p}
+\newcommand{\pbar}{\bar p}
+\newcommand{\Ex}{\mathbb{E}}
+\newcommand{\eaglev}{\textsc{Eagle-V}}
+
+\title{Seeing Is Not Certainty: Risk-Controlled Escalation\\ for Pairwise Vision-Language Judges}
+\author{Anonymous Authors}
+\date{Draft of \today}
+
+\begin{document}
+\maketitle
+
+\input{sections/abstract}
+\input{sections/intro}
+\input{sections/related}
+\input{sections/setup}
+\input{sections/diagnostic}
+\input{sections/method}
+\input{sections/ranking}
+\input{sections/experiments}
+\input{sections/applications}
+\input{sections/limitations}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\appendix
+\input{sections/appendix}
+\end{document}

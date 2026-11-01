@@ -1,0 +1,23 @@
+# code-only repo: data, images, model outputs and logs stay in $EAGLEVLM_DATA
+data/
+raw/
+images/
+items/
+results/
+logs/
+paper_tables/
+*.jsonl
+*.jsonl.gz
+*.parquet
+*.jpg
+*.png
+*.pt
+*.safetensors
+__pycache__/
+.venv/
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.bbl
+paper/*.blg
+paper/*.pdf

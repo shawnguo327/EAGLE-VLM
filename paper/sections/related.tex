@@ -1,0 +1,24 @@
+\section{Related Work}\label{sec:related}
+
+\paragraph{Multimodal judges and their biases.}
+MLLM-as-a-Judge \citep{chen2024mllmasajudge} first measured VLM judges against humans and documented position and verbosity bias. VL-RewardBench \citep{li2024vlrewardbench}, Multimodal RewardBench 1/2 \citep{yasunaga2025multimodal,hu2025multimodal} and MJ-Bench \citep{chen2024mjbench} turned this into standard pairwise benchmarks for response and image judging, and GenAI-Arena \citep{jiang2024genai} and K-Sort Arena \citep{li2024ksort} collect human votes on visual generation.
+Recent audits show forced-choice and informativeness biases \citep{khan2026seeing,zou2026when}, order flips of up to 60.9\% in editing evaluation \citep{huang2026do}, and that pairwise protocols beat pointwise ones in agreement with arena rankings \citep{li2026genarena}. Pointwise protocols, in turn, are more robust to distractors \citep{tripathi2025pairwise}.
+VLM judges ``rank but cannot score'' \citep{kumar2026vlm}. Our ladder exploits exactly this: it uses pointwise scores only as a fallback on the pairs where the pairwise margin is weak.
+
+\paragraph{Selective and risk-controlled judging.}
+Selective classification \citep{geifman2017selective} and distribution-free risk control \citep{angelopoulos2021learn,angelopoulos2022conformal} give finite-sample guarantees on the error among accepted predictions.
+Trust-or-Escalate \citep{jung2024trust} brought this to LLM judges with a model cascade. SCOPE \citep{badshah2026scope} added bidirectional preference entropy, and its follow-up adds retrieval before abstention \citep{badshah2026judge}. JEV \citep{li2026jevasajudge} escalates to a reasoning judge, and interval-valued judges come from conformal prediction \citep{sheng2025analyzing}.
+For vision, the work is about \emph{outputs} rather than \emph{judgments}: conformal abstention for VLM answers \citep{tayebati2025learning}, risk control on released text-to-image samples \citep{yin2026calibrate}, and risk-controlled GUI actions \citep{feng2026cora}.
+The closest judge-side works are an uncalibrated order-consistency filter for image selection \citep{seo2026when}, Bayesian prompt ensembles that improve judge calibration but provide no selection rule \citep{slyman2025calibrating}, and multi-VLM consensus entropy for OCR \citep{zhang2025consensus}.
+\eaglev{} is, to our knowledge, the first selective \emph{pairwise} VLM judge with a human-agreement guarantee and a protocol-level fallback.
+
+\paragraph{Calibration of VLMs.}
+Token probabilities are much better error detectors than verbalised confidence in VLMs \citep{ferdous2026small}, while chain-of-thought degrades probability-based uncertainty but leaves agreement-based signals intact \citep{welch2026the}. Both findings support reading confidence from first-token probabilities under order swaps, as we do.
+
+\paragraph{Prediction-powered evaluation.}
+Prediction-powered inference (PPI) combines many model predictions with few human labels into valid confidence intervals \citep{angelopoulos2023predictionpowered,angelopoulos2023ppi}. Active \citep{zrnic2024active} and stratified \citep{fisch2024stratified} variants spend labels where the model is uncertain.
+PPI has been applied to LLM rankings from pairwise comparisons \citep{chatzi2024predictionpowered}, to autoevaluation \citep{boyeau2024autoeval}, and to reward-model evaluation \citep{frick2024how}.
+For visual generation, K-Sort Eval \citep{li2026ksort} corrects a VLM judge heuristically, without coverage guarantees. We give a PPI Bradley--Terry/Davidson estimator with confidence-routed labelling and characterise when it can help.
+
+\paragraph{Urban perception.}
+Place Pulse \citep{dubey2016deep} collected 1.17M pairwise street-view votes on six perceptual attributes \todo{verify count against the 2.0 release; our copy has 1.34M strict + 203k ties}. Recent work aligns VLMs to these votes \citep{zhang2026urbanalign}, finds culturally uneven LLM perception \citep{zhao2026culturally}, and argues that urban-perception benchmarks should report reliability \citep{mushkani2026benchmarks}. \eaglev{} provides such reliability reporting.

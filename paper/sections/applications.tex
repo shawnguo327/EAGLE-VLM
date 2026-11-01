@@ -1,0 +1,22 @@
+\section{Where a Selective VLM Judge Helps}\label{sec:applications}
+
+\Cref{tab:apps} summarises where a risk-controlled judge changes current practice. The criterion is what the guarantee or the escalation buys, not raw accuracy.
+
+\begin{table}[t]
+\centering\small
+\caption{Uses of \eaglev{} and what the calibrated gate buys.}\label{tab:apps}
+\begin{tabular}{p{3.0cm}p{4.2cm}p{5.6cm}}
+\toprule
+Use & Current practice & What \eaglev{} adds\\
+\midrule
+Benchmark / leaderboard evaluation & All-human labels, or judge numbers without CIs & PPI rankings with valid CIs and human labels routed to uncertain pairs (\cref{sec:ranking}); \cref{prop:cap} says in advance whether it will pay off\\
+Visual-generation arenas & All human votes; heuristic VLM correction \citep{li2026ksort} & Escalate only low-confidence battles to voters; Davidson ties for ``both bad'' votes\\
+Best-of-$N$ image generation & Pointwise reward or an unchecked VLM tournament & Confident matches settled cheaply; uncertain ones escalated; complements output-level risk control \citep{yin2026calibrate}\\
+Multimodal preference data (DPO/RLHF) & AI labels kept by margin heuristics \citep{yu2024rlaifv} & Certified label-error rate on the kept pairs; low-confidence pairs dropped or relabelled\\
+Abstaining rewards for multimodal RL & Always-on judge reward \citep{wang2025prefgrpo}; hacking \citep{yao2026multimodal} & Zero or neutral reward when the judge is unsure; fewer coin-flip gradients\\
+Urban perception surveys & Random or TrueSkill-active crowd sampling \citep{dubey2016deep} & VLM decides confident pairs; humans see only uncertain ones; reliability reported as \citet{mushkani2026benchmarks} recommends\\
+Agent and robot success detection & Single VLM verdict \citep{lu2025agentrewardbench,lee2026roboreward} & Uncertain trajectories escalated to a human or a stronger judge\\
+Domain review (radiology, remote sensing) & Text-only reference metrics; unvalidated GPT judges & Image-grounded judge whose escalations target expert time\\
+\bottomrule
+\end{tabular}
+\end{table}

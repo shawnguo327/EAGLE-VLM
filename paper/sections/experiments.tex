@@ -1,0 +1,37 @@
+\section{Experiments}\label{sec:experiments}
+
+\paragraph{Protocol.}
+Each experiment uses 50 random 50/50 calibration/test splits per dataset and judge. We use $\delta=0.1$ and $\alpha\in\{.05,.10,.15,.20,.25\}$, chosen per dataset relative to base error \todo{fix the $\alpha$ grid once base accuracies are known; $\alpha$ below the error of the best quintile is unattainable}.
+We report automation (the share of pairs decided without a human), realised test risk, and the violation frequency.
+
+\paragraph{Baselines.}
+(a) Pairwise-only with $\dpconf$, which is SCOPE \citep{badshah2026scope} with its bidirectional entropy;
+(b) pairwise-only with $\lambda$;
+(c) hard order-consistency filtering \citep{seo2026when};
+(d) a Trust-or-Escalate-style model cascade (Qwen2.5-VL-7B $\rightarrow$ Qwen3-VL-8B $\rightarrow$ API) \citep{jung2024trust};
+(e) \eaglev{} (pairwise $\rightarrow$ pointwise $\rightarrow$ [API] $\rightarrow$ human).
+Optional: Bayesian prompt ensembles \citep{slyman2025calibrating} as an alternative confidence; multi-VLM consensus entropy \citep{zhang2025consensus}.
+
+\paragraph{Synthetic sanity check.}
+With a simulated over-confident judge (accuracy .71, 29\% of pairs saturated), the pairwise-only threshold keeps true risk below $\alpha$ in at least 88\% of 100 runs (target 90\%; $n_{\rm cal}=1{,}500$). It certifies 8\%/32\%/55\% coverage at $\alpha=.10/.15/.20$, and the two-rung ladder raises automation at $\alpha=.20$ from 48\% to 58\% \todo{replace with real-data results; move synthetic to appendix}.
+
+\begin{table}[t]
+\centering\small
+\caption{Automation (\%) at certified risk $\alpha$ (mean over 50 splits). Higher is better; every method meets the risk target.}\label{tab:main}
+\begin{tabular}{lccccc}
+\toprule
+Dataset ($\alpha$) & SCOPE ($\dpconf$) & $\lambda$ & Order filter & Model cascade & \eaglev{}\\
+\midrule
+VL-RewardBench & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+GenAI-Arena & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+MMRB2 & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+\ldots & & & & & \\
+Place Pulse 2.0 & \TBD{} & \TBD{} & \TBD{} & \TBD{} & \TBD{}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Rankings.}
+(i) \emph{Place Pulse:} we use the per-image TrueSkill/BT scores fitted on all 1.34M votes as the reference and estimate them from a budget of $B\in\{1,2,5,10\}\%$ human votes plus judge labels on the rest. We report the mean absolute error of $\theta$, the Spearman correlation with the reference, and CI coverage, comparing human-only, PPI with uniform labelling, and PPI with confidence-routed labelling.
+(ii) \emph{GenAI-Arena:} model-level BT/Davidson leaderboards from the public votes, against K-Sort Eval-style heuristic correction \citep{li2026ksort}.
+\todo{implement Davidson PPI; the BT version is in \texttt{eaglev\_stats.py}.}

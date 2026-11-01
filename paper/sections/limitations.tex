@@ -1,0 +1,12 @@
+\section{Limitations and Conclusion}\label{sec:limitations}
+
+\paragraph{Limitations.}
+The guarantee assumes calibration and deployment pairs are exchangeable. A new generator or domain needs recalibration, which costs a few hundred human labels.
+The guarantee also concerns agreement with the \emph{label source}. For crowd votes that is a noisy target, and a judge certified at $\alpha=.2$ may still disagree with a careful expert.
+Our judges are open 7--9B models with first-token readout. Thinking-mode judges change both accuracy and calibration \citep{welch2026the}, and we leave them to future work.
+Pointwise fallback requires a meaningful absolute scale, which some tasks (for example ``which edit is more faithful'') lack.
+
+\paragraph{Conclusion.}
+Order-symmetric confidence, the signal behind SCOPE and EAGLE, transfers to vision as a ranking signal but not as a calibrated or saturation-free one, and it ignores the disagreement in human votes.
+Reading it in log-odds space, escalating first to a differently-biased protocol, and calibrating the whole ladder jointly gives VLM judges a finite-sample guarantee with more automation.
+For rankings, prediction-powered estimation keeps the guarantee for any judge, and a one-line bound tells practitioners when the judge will actually save human effort.
