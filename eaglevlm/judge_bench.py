@@ -105,7 +105,8 @@ def main():
     if outp.exists():
         for l in open(outp):
             d = json.loads(l)
-            done.add((d["id"], d["cond"], d["order"]))
+            if "lp" in d:  # error rows (OOM, missing image) are retried on the next run
+                done.add((d["id"], d["cond"], d["order"]))
     jobs = [j for j in jobs if (j[0]["id"], j[1], j[2]) not in done]
     # sort by rough size so batches are homogeneous
     jobs.sort(key=lambda j: (j[1], len(json.dumps(j[0]["cand"]))))
