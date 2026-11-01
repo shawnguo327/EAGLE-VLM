@@ -165,21 +165,36 @@ def ladder_eval(recs, alpha, delta=0.1, seed=0, n_splits=50, conf_name="abs_logo
 
 # ----------------------------------------------------------------------------- PPI ranking
 
-def bt_fit(pairs, wins, w, n_items, l2=1e-3, iters=200):
-    """Weighted Bradley-Terry MLE via Newton. pairs: (m,2) int; wins: P(first beats second) in [0,1] (soft ok);
-    w: per-row weights (may be negative for PPI rectifier rows). Returns centred log-strengths."""
+def bt_fit(pairs, wins, w, n_items, l2=0.1, iters=200):
+    """Weighted Bradley-Terry M-estimation. pairs: (m,2) int; wins: P(first beats second) in [0,1] (soft ok);
+    w: per-row weights, may be negative (PPI rectifier rows). Damped Newton with a PSD Hessian built from |w| and
+    backtracking on the weighted loss, so negative weights cannot make the step diverge. Returns centred strengths."""
+    pairs = np.asarray(pairs); wins = np.asarray(wins, float); w = np.asarray(w, float)
     th = np.zeros(n_items)
+
+    def loss(t):
+        d = t[pairs[:, 0]] - t[pairs[:, 1]]
+        return float(np.sum(w * (np.logaddexp(0, d) - wins * d)) + l2 * t @ t)
+    cur = loss(th)
     for _ in range(iters):
         d = th[pairs[:, 0]] - th[pairs[:, 1]]; p = 1 / (1 + np.exp(-d))
         g = np.zeros(n_items); r = w * (wins - p)
-        np.add.at(g, pairs[:, 0], r); np.add.at(g, pairs[:, 1], -r); g -= l2 * th
-        H = np.zeros((n_items, n_items)); h = w * p * (1 - p)
+        np.add.at(g, pairs[:, 0], r); np.add.at(g, pairs[:, 1], -r); g -= 2 * l2 * th
+        H = np.zeros((n_items, n_items)); h = np.abs(w) * p * (1 - p)
         np.add.at(H, (pairs[:, 0], pairs[:, 0]), h); np.add.at(H, (pairs[:, 1], pairs[:, 1]), h)
         np.add.at(H, (pairs[:, 0], pairs[:, 1]), -h); np.add.at(H, (pairs[:, 1], pairs[:, 0]), -h)
-        H += l2 * np.eye(n_items)
-        step = np.linalg.lstsq(H, g, rcond=None)[0]
-        th += step
-        if np.abs(step).max() < 1e-8:
+        H += (2 * l2 + 1e-6) * np.eye(n_items)
+        step = np.linalg.solve(H, g)
+        a = 1.0
+        while a > 1e-4:
+            new = loss(th + a * step)
+            if new <= cur:
+                break
+            a /= 2
+        if a <= 1e-4:
+            break
+        th = th + a * step; delta = cur - new; cur = new
+        if np.abs(a * step).max() < 1e-7 or delta < 1e-10:
             break
     return th - th.mean()
 
