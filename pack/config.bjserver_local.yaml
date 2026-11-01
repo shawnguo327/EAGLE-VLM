@@ -32,6 +32,7 @@ phases:   # priority = order on the start command line
     conds: tri_zoom,tri_zoomr,tri_zoomlo
     datasets: edit
     cost: 1.6               # 6 images per call (plan estimate only)
+    bs: 4                   # bs 8 hits the memory ceiling next to the phase-A job and thrashes on OOM
     models: [qwen3vl8b]
   Z2_ablate_8b:
     type: judge
@@ -44,6 +45,7 @@ phases:   # priority = order on the start command line
     conds: tri_zoom,tri_zoomr,tri_zoomlo,tri_p1
     datasets: edit
     cost: 1.4
+    bs: 4
     models: [internvl35_8b]
   Z2_ablate_ivl:
     type: judge
