@@ -95,7 +95,7 @@ import numpy as _np                      # vllm_g4 ships a scipy that still refe
 if not hasattr(_np, "long"):              # alias at runtime instead of touching the environment
     _np.long = _np.int64; _np.ulong = _np.uint64
 from vllm import LLM, SamplingParams
-kw = dict(model=a.model_path, gpu_memory_utilization=a.gpu_mem, max_model_len=16384, limit_mm_per_prompt={"image": 4},
+kw = dict(model=a.model_path, gpu_memory_utilization=a.gpu_mem, max_model_len=16384, limit_mm_per_prompt={"image": max(len(r["context"]) for r in items)},
           trust_remote_code=False, seed=0)
 if a.model == "r1reward":
     kw["mm_processor_kwargs"] = {"max_pixels": 1003520 // 2}
