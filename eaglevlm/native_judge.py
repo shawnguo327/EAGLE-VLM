@@ -22,6 +22,7 @@ ap.add_argument("--n", type=int, default=5)
 ap.add_argument("--max-tokens", type=int, default=2048)
 ap.add_argument("--gpu-mem", type=float, default=0.45)
 ap.add_argument("--limit", type=int, default=0)
+ap.add_argument("--max-len", type=int, default=16384, help="32768 for the LLaVA-OV models on the 8-image items")
 ap.add_argument("--chunk", type=int, default=64, help="pairs per vLLM call (results are flushed per chunk)")
 a = ap.parse_args()
 ROOT = os.environ.get("EAGLEVLM_DATA", os.getcwd())
@@ -95,7 +96,7 @@ import numpy as _np                      # vllm_g4 ships a scipy that still refe
 if not hasattr(_np, "long"):              # alias at runtime instead of touching the environment
     _np.long = _np.int64; _np.ulong = _np.uint64
 from vllm import LLM, SamplingParams
-kw = dict(model=a.model_path, gpu_memory_utilization=a.gpu_mem, max_model_len=16384, limit_mm_per_prompt={"image": max(len(r["context"]) for r in items)},
+kw = dict(model=a.model_path, gpu_memory_utilization=a.gpu_mem, max_model_len=a.max_len, limit_mm_per_prompt={"image": max(len(r["context"]) for r in items)},
           trust_remote_code=False, seed=0)
 if a.model == "r1reward":
     kw["mm_processor_kwargs"] = {"max_pixels": 1003520 // 2}
