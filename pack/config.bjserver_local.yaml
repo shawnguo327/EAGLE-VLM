@@ -17,6 +17,7 @@ models:   # speed = calls/s per process on bjserver while sharing the GPU with t
   r1reward:      {repo: yifanzhang114/R1-Reward, gpus: 1, bs: 8, speed: 6, path: /media/shawn/C/papers/VLM/judge_models/R1-Reward}
   llavacritic7b: {repo: lmms-lab/llava-critic-7b (converted to HF llava-onevision), gpus: 1, bs: 4, speed: 3, path: /media/shawn/C/papers/VLM/judge_models/llava-critic-7b-hf}
   mmrlhfrm7b:    {repo: yifanzhang114/MM-RLHF-Reward-7B-llava-ov-qwen (converted), gpus: 1, bs: 4, speed: 3, path: /media/shawn/C/papers/VLM/judge_models/MM-RLHF-Reward-7B-hf}
+  llavaov7b:     {repo: llava-hf/llava-onevision-qwen2-7b-ov-hf (base of LLaVA-Critic and MM-RLHF-Reward), gpus: 1, bs: 4, speed: 3, path: /media/shawn/C/papers/VLM/judge_models/llava-ov-7b-hf}
   qwen3_8b:      {repo: Qwen/Qwen3-8B, gpus: 1, bs: 16, speed: 25, text_llm: true, path: /home/shawn/code/Jev-Test/models/Qwen3-8B}
   qwen25_7b:     {repo: Qwen/Qwen2.5-7B-Instruct, gpus: 1, bs: 16, speed: 25, text_llm: true, path: /home/shawn/yinanshao/models/Qwen2.5-7B-Instruct}
 datasets: [pp, mmrb2, genai_arena, mllm_judge, editreward, vlrb, mmrb, mjbench, imagerewarddb, qbench2, mmrlhf]
@@ -29,6 +30,33 @@ dataset_sets:
   ver_small: [mmrb2_s32, vlrb_s32, mmrb_s32, mjbench_s32, imagerewarddb_s32, qbench2_s32, mmrlhf_s32]   # verified sets, 700-pair caps
   s32: [genai_arena_s32, mllm_judge_s32, editreward_s32, mmrb2_s32, imagerewarddb_s32, vlrb_s32, mmrb_s32, mjbench_s32]
 phases:   # priority = order on the start command line
+  # --- 2026-11-02 tie mechanism: P(T) on GenAI-Arena tracks 'both bad' votes, not 'equally good' ones.
+  #     S1: controlled set (make_synth_ties.py): TG both-good tie / TB both-bad tie / DV visual-detail win / DT text-flaw win,
+  #         with and without the image.  T1: text pairs with both tie types (Arena 100k).  J4: base of LLaVA-Critic/MM-RLHF.
+  S1_synth:
+    type: judge
+    conds: bin,tri,bin_blind,tri_blind
+    datasets: [synth_tie]
+    models: [qwen3vl8b, r1reward, qwen25vl7b, internvl35_8b, llavacritic7b, mmrlhfrm7b]
+  T1_arena_tt:
+    type: judge
+    conds: bin,tri
+    datasets: [arena_tt]
+    cost: 0.6
+    models: [qwen3_8b, qwen3vl8b, qwen25vl7b, r1reward, qwen25_7b, internvl35_8b]
+  J4_llavaov:
+    type: judge
+    wait_for: {file: /media/shawn/C/papers/VLM/judge_models/dl2.log, text: DL2_DONE}
+    conds: bin,tri
+    datasets: ties
+    cost: 2.0
+    models: [llavaov7b]
+  S1_synth_ov:
+    type: judge
+    wait_for: {file: /media/shawn/C/papers/VLM/judge_models/dl2.log, text: DL2_DONE}
+    conds: bin,tri,bin_blind,tri_blind
+    datasets: [synth_tie]
+    models: [llavaov7b]
   # --- 2026-11-01 redesign after review (comments/1.md): is "can't tell" evidence the judge did not use? (targeted
   #     visual re-check vs random / same-pixel controls) and does the verdict use the image at all? (blind / wrong image).
   #     Human ties ("close") should keep P(T) under both.
