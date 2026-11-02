@@ -17,6 +17,7 @@ Readout = first-token log-probs over the answer keys. Conditions:
     bin_hires  A/B with images at HIRES px (more visual evidence; use --tiling for InternVL)
     bin_desc   A/B with generated detailed descriptions added to the images (--desc; see describe.py)
     tri_p1..3  A/B/T with three paraphrased instructions (prompt-nuisance ensemble)
+    tri_sa1..4 A/B/T under four annotator personas (zero-shot simulated annotators, Jung et al. ICLR 2025)
     tri_jpeg   A/B/T with every image JPEG-recompressed at quality 30 (image-nuisance)
     tri_crop   A/B/T with every image center-cropped to 90% (image-nuisance)
     tri_blind  A/B/T without the question images (resp items; does the verdict use the image at all?)
@@ -46,7 +47,8 @@ MODELS = {"qwen3vl8b": PP / "Qwen3-VL-8B-Instruct", "qwen35_9b": PP / "Qwen3.5-9
 MAXSIDE, LOWRES, HIRES = 768, 112, 1536
 MAXCHARS = 4000
 PAIR = {"bin", "tri", "str7", "bin_blind", "bin_lowres", "bin_hires", "bin_desc", "tri_p1", "tri_p2", "tri_p3",
-        "tri_jpeg", "tri_crop", "tri_blind", "tri_wrong", "tri_zoom", "tri_zoomr", "tri_zoomlo"}
+        "tri_jpeg", "tri_crop", "tri_blind", "tri_wrong", "tri_zoom", "tri_zoomr", "tri_zoomlo",
+        "tri_sa1", "tri_sa2", "tri_sa3", "tri_sa4"}
 IMG_ONLY = {"tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc"}      # no-ops on text items: skipped there
 RESP_ONLY = {"bin_blind", "tri_blind", "tri_wrong"}                              # need question images + text responses
 ZOOM = {"tri_zoom", "tri_zoomr", "tri_zoomlo"}                                   # need an edit source image
@@ -142,6 +144,15 @@ ASK_IMG |= {
     "tri_p2": "{q}\nEvaluate both images against this criterion: {crit} If one image is clearly superior, output its letter "
               "(A or B). If they are of comparable quality, output T. Output a single letter.",
     "tri_p3": "{q}\nAs an impartial judge, compare Image A and Image B. Criterion: {crit} Answer A, B, or T (tie). One letter only."}
+# zero-shot simulated annotators: persona prefixed to the plain tri prompt
+PERSONA = {
+    "tri_sa1": "You are annotator 1. You are strict: you prefer the candidate that satisfies every requirement of the "
+               "instruction most precisely.",
+    "tri_sa2": "You are annotator 2. You judge the overall impression: quality, clarity and presentation matter most to you.",
+    "tri_sa3": "You are annotator 3. You look for mistakes: any factual error, visual artifact or invented detail weighs "
+               "heavily against a candidate.",
+    "tri_sa4": "You are annotator 4, an ordinary user. You prefer one candidate only when the difference would be obvious "
+               "to you at a glance."}
 SCORE_RESP = ("Question: {q}\n\n[Response]\n{a}\n\nCriterion: {crit} Rate this response on an integer scale "
               "from 1 (very poor) to 9 (excellent). Answer with exactly one digit.")
 SCORE_IMG = ("{q}\nCriterion: {crit} Rate this image on an integer scale from 1 (very poor) to 9 (excellent). "
@@ -175,6 +186,8 @@ def build(r, cond, order, desc=None):
     load = lambda p: load_img(p, ms, pert)
     ask = cond if cond in ("tri", "str7", "tri_p1", "tri_p2", "tri_p3") else "tri" if cond.startswith("tri") else "bin"
     D = desc.get(r["id"]) if (cond == "bin_desc" and desc is not None) else None
+    if cond in PERSONA:
+        c.append({"type": "text", "text": PERSONA[cond]})
     if cond == "bin_desc" and D is None:
         raise KeyError(f"no description for {r['id']}")
     if r["kind"] in ("resp", "text"):

@@ -14,6 +14,9 @@ models:   # speed = calls/s per process on bjserver while sharing the GPU with t
   qwen25vl7b:    {repo: Qwen/Qwen2.5-VL-7B-Instruct, gpus: 1, bs: 8, speed: 6, path: /media/shawn/C/nyserver-files/mntstorage/models/Qwen2.5-VL-7B-Instruct}
   qwen25vl3b:    {repo: Qwen/Qwen2.5-VL-3B-Instruct, gpus: 1, bs: 16, speed: 12, path: /media/shawn/C/nyserver-files/mntstorage/models/Qwen2.5-VL-3B-Instruct}
   qwen3vl32b:    {repo: Qwen/Qwen3-VL-32B-Instruct, gpus: 1, bs: 4, speed: 1.6, exclusive: true, path: /media/shawn/C/papers/VLM/place-pulse-2.0/models/Qwen3-VL-32B-Instruct}
+  r1reward:      {repo: yifanzhang114/R1-Reward, gpus: 1, bs: 8, speed: 6, path: /media/shawn/C/papers/VLM/judge_models/R1-Reward}
+  llavacritic7b: {repo: lmms-lab/llava-critic-7b (converted to HF llava-onevision), gpus: 1, bs: 4, speed: 3, path: /media/shawn/C/papers/VLM/judge_models/llava-critic-7b-hf}
+  mmrlhfrm7b:    {repo: yifanzhang114/MM-RLHF-Reward-7B-llava-ov-qwen (converted), gpus: 1, bs: 4, speed: 3, path: /media/shawn/C/papers/VLM/judge_models/MM-RLHF-Reward-7B-hf}
   qwen3_8b:      {repo: Qwen/Qwen3-8B, gpus: 1, bs: 16, speed: 25, text_llm: true, path: /home/shawn/code/Jev-Test/models/Qwen3-8B}
   qwen25_7b:     {repo: Qwen/Qwen2.5-7B-Instruct, gpus: 1, bs: 16, speed: 25, text_llm: true, path: /home/shawn/yinanshao/models/Qwen2.5-7B-Instruct}
 datasets: [pp, mmrb2, genai_arena, mllm_judge, editreward, vlrb, mmrb, mjbench, imagerewarddb, qbench2, mmrlhf]
@@ -22,6 +25,8 @@ dataset_sets:
   sub_aleatoric: [pp, mmrb2, genai_arena, mllm_judge, editreward, imagerewarddb]
   edit: [genai_arena_edit, mmrb2_edit, editreward]          # edit pairs with a source image (zoom conditions)
   resp_img: [mllm_judge, vlrb, mmrb, mmrlhf]                # text responses about images (image ablation)
+  ties: [genai_arena, mllm_judge, editreward, pp]            # sets with human ties (baseline table)
+  ver_small: [mmrb2_s32, vlrb_s32, mmrb_s32, mjbench_s32, imagerewarddb_s32, qbench2_s32, mmrlhf_s32]   # verified sets, 700-pair caps
   s32: [genai_arena_s32, mllm_judge_s32, editreward_s32, mmrb2_s32, imagerewarddb_s32, vlrb_s32, mmrb_s32, mjbench_s32]
 phases:   # priority = order on the start command line
   # --- 2026-11-01 redesign after review (comments/1.md): is "can't tell" evidence the judge did not use? (targeted
@@ -52,6 +57,58 @@ phases:   # priority = order on the start command line
     conds: tri_blind,tri_wrong
     datasets: resp_img
     cost: 0.7
+    models: [internvl35_8b]
+  # --- 2026-11-01 night: LLM-judge methods not yet tried on VLM judges. Zero-shot simulated annotators (persona
+  #     ensemble, Jung et al. ICLR 2025 "Trust or Escalate"): agreement across personas as confidence, mean P(T) as tie.
+  # --- dedicated multimodal judge / reward models from the MLLM-as-a-Judge line (baselines for the main table),
+  #     read with the same pairwise protocol: forced choice (bin) and tie option (tri), both orders.
+  J1_r1reward:
+    type: judge
+    conds: bin,tri
+    datasets: ties
+    models: [r1reward]
+  J1_r1reward_ver:
+    type: judge
+    conds: bin
+    datasets: ver_small
+    models: [r1reward]
+  J2_critic:
+    type: judge
+    wait_for: {file: /media/shawn/C/papers/VLM/judge_models/llava-critic-7b-hf/CONVERTED, text: ok}
+    conds: bin,tri
+    datasets: ties
+    cost: 2.0
+    models: [llavacritic7b]
+  J2_critic_ver:
+    type: judge
+    wait_for: {file: /media/shawn/C/papers/VLM/judge_models/llava-critic-7b-hf/CONVERTED, text: ok}
+    conds: bin
+    datasets: ver_small
+    cost: 2.0
+    models: [llavacritic7b]
+  J3_mmrlhf:
+    type: judge
+    wait_for: {file: /media/shawn/C/papers/VLM/judge_models/MM-RLHF-Reward-7B-hf/CONVERTED, text: ok}
+    conds: bin,tri
+    datasets: ties
+    cost: 2.0
+    models: [mmrlhfrm7b]
+  J3_mmrlhf_ver:
+    type: judge
+    wait_for: {file: /media/shawn/C/papers/VLM/judge_models/MM-RLHF-Reward-7B-hf/CONVERTED, text: ok}
+    conds: bin
+    datasets: ver_small
+    cost: 2.0
+    models: [mmrlhfrm7b]
+  L9_simann_8b:
+    type: judge
+    conds: tri_sa1,tri_sa2,tri_sa3,tri_sa4
+    datasets: ties
+    models: [qwen3vl8b]
+  L9_simann_ivl:
+    type: judge
+    conds: tri_sa1,tri_sa2,tri_sa3,tri_sa4
+    datasets: ties
     models: [internvl35_8b]
   L1_text:
     type: judge
