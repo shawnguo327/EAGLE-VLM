@@ -5,7 +5,10 @@
   sim     Is P(T) just a candidate-similarity detector?  Similarity covariates from pair_sim.py.  Per dataset/judge:
           tie AUROC of each similarity alone; Spearman of P(T) with them; P(T) AUROC within similarity quintiles;
           5-fold CV logistic AUROC of [sims], [sims + P(T)], [sims + U], [sims + P(T) + U].
-usage (from $EAGLEVLM_DATA): python tie_mech.py types|sim [--out paper_tables/tie_<what>]"""
+  synth   Controlled set (make_synth_ties.py): TG both-good tie, TB both-bad tie, DV win visible only in the image,
+          DT win visible in the text.  With / without the image: mean P(T), accuracy, and AUROC of P(T) and U for
+          each tie type vs. the decided pairs.
+usage (from $EAGLEVLM_DATA): python tie_mech.py types|sim|synth [--out paper_tables/tie_<what>]"""
 import argparse, glob, json, os, sys
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "eaglevlm"))
@@ -13,7 +16,7 @@ from eaglev_stats import _sm, auroc
 
 DIRS_DEF = "results,results_A,/media/shawn/C/papers/VLM/judgebench_local/runs/*/raw"
 ITEMS_DEF = "items,/media/shawn/C/papers/VLM/judgebench_local/items"
-JUDGES = ["qwen3vl8b", "internvl35_8b", "qwen35_9b", "qwen25vl7b", "r1reward", "llavaov7b", "llavacritic7b", "mmrlhfrm7b"]
+JUDGES = ["qwen3vl8b", "internvl35_8b", "qwen35_9b", "qwen25vl7b", "r1reward", "llavaov7b", "llavacritic7b", "mmrlhfrm7b", "qwen3_8b", "qwen25_7b"]
 H = lambda p: -(p * np.log(p + 1e-12) + (1 - p) * np.log(1 - p + 1e-12))
 
 
@@ -64,41 +67,93 @@ def boot_diff(s1, s2, y, B=1000, seed=0):
     return np.nanpercentile(d, [2.5, 97.5])
 
 
+def ttype(it):
+    """'bothbad_vote' | 'tievote' | 'leftvote' (decided) for GenAI-Arena and the Arena-100k text set"""
+    if "vote_type" in it.get("meta", {}):
+        return it["meta"]["vote_type"]
+    return {"bothbad": "bothbad_vote", "tie": "tievote"}.get(it["subset"], "leftvote")
+
+
 def types(a):
-    I = items("genai_arena")
-    L = ["# GenAI-Arena: which human ties does P(T) detect?", "",
-         "Tie types: bothbad = voter clicked 'both are bad'; tievote = 'tie' (equally good). Decided = left/right vote.",
-         "Cells: AUROC [95% CI].  Δ = AUROC(P(T)) - AUROC(U), paired bootstrap.", ""]
-    for sub in ("all", "generation", "edition"):
-        L += [f"## subset: {sub}", "",
-              "| judge | n bb/tie/dec | bothbad vs dec: P(T) | U | Δ | tievote vs dec: P(T) | U | Δ | bothbad vs tievote: P(T) | U |",
-              "|---|---|---|---|---|---|---|---|---|---|"]
-        for j in JUDGES:
-            R = load("genai_arena", j)
-            rows = []
-            for i, r in R.items():
-                if i not in I or (sub != "all" and I[i]["subset"] != sub):
-                    continue
-                s = signals(r)
-                if s:
-                    rows.append((I[i]["meta"]["vote_type"], s[0], s[1]))
-            if not rows:
+  L = ["# Which human ties does P(T) detect?", "",
+       "Tie types: bothbad = voter clicked 'both are bad'; tievote = 'tie' (equally good). Decided = a winner was picked.",
+       "Cells: AUROC [95% CI].  Δ = AUROC(P(T)) - AUROC(U), paired bootstrap.", ""]
+  for ds in a.ds.split(","):
+    I = items(ds)
+    for sub in (("all", "generation", "edition") if ds == "genai_arena" else ("all",)):
+          L += [f"## {ds}, subset: {sub}", "",
+                "| judge | n bb/tie/dec | bothbad vs dec: P(T) | U | Δ | tievote vs dec: P(T) | U | Δ | bothbad vs tievote: P(T) | U |",
+                "|---|---|---|---|---|---|---|---|---|---|"]
+          for j in JUDGES:
+              R = load(ds, j)
+              rows = []
+              for i, r in R.items():
+                  if i not in I or (sub != "all" and I[i]["subset"] != sub):
+                      continue
+                  s = signals(r)
+                  if s:
+                      rows.append((ttype(I[i]), s[0], s[1]))
+              if not rows:
+                  continue
+              vt = np.array([x[0] for x in rows]); pt = np.array([x[1] for x in rows]); u = np.array([x[2] for x in rows])
+              dec = np.isin(vt, ["leftvote", "rightvote"])
+              cells = [f"{(vt == 'bothbad_vote').sum()}/{(vt == 'tievote').sum()}/{dec.sum()}"]
+              for t in ("bothbad_vote", "tievote"):
+                  m = dec | (vt == t); y = (vt[m] == t).astype(int)
+                  for s in (pt[m], u[m]):
+                      lo, hi = boot_auc(s, y, a.boot)
+                      cells.append(f"{auroc(s, y):.3f} [{lo:.2f},{hi:.2f}]")
+                  lo, hi = boot_diff(pt[m], u[m], y, a.boot)
+                  d = auroc(pt[m], y) - auroc(u[m], y)
+                  cells.append(f"{d:+.3f} [{lo:+.2f},{hi:+.2f}]" + (" *" if lo > 0 or hi < 0 else ""))
+              m = np.isin(vt, ["bothbad_vote", "tievote"]); y = (vt[m] == "bothbad_vote").astype(int)
+              cells += [f"{auroc(pt[m], y):.3f}", f"{auroc(u[m], y):.3f}"]
+              L.append(f"| {j} | " + " | ".join(cells) + " |")
+          L.append("")
+  open(a.out + ".md", "w").write("\n".join(L) + "\n")
+  print("\n".join(L))
+
+
+def ft(a):
+    """base -> fine-tuned judge: what reward/critic training does to the tie channel"""
+    PAIRS = [("qwen25vl7b", "r1reward"), ("llavaov7b", "llavacritic7b"), ("llavaov7b", "mmrlhfrm7b")]
+    L = ["# Base vs fine-tuned judge: tie channel", "",
+         "Cells: base -> fine-tuned.  T mass = mean P(T).  Tie AUROC of P(T) (U in brackets).", "",
+         "| set / target | " + " | ".join(f"{b} -> {f}" for b, f in PAIRS) + " |", "|---|" + "---|" * len(PAIRS)]
+
+    def cell(ds, j, target, cond=("tri", "bin")):
+        I = items(ds); R = load(ds, j); y = []; pt = []; u = []
+        for i, r in R.items():
+            if i not in I:
                 continue
-            vt = np.array([x[0] for x in rows]); pt = np.array([x[1] for x in rows]); u = np.array([x[2] for x in rows])
-            dec = np.isin(vt, ["leftvote", "rightvote"])
-            cells = [f"{(vt == 'bothbad_vote').sum()}/{(vt == 'tievote').sum()}/{dec.sum()}"]
-            for t in ("bothbad_vote", "tievote"):
-                m = dec | (vt == t); y = (vt[m] == t).astype(int)
-                for s in (pt[m], u[m]):
-                    lo, hi = boot_auc(s, y, a.boot)
-                    cells.append(f"{auroc(s, y):.3f} [{lo:.2f},{hi:.2f}]")
-                lo, hi = boot_diff(pt[m], u[m], y, a.boot)
-                d = auroc(pt[m], y) - auroc(u[m], y)
-                cells.append(f"{d:+.3f} [{lo:+.2f},{hi:+.2f}]" + (" *" if lo > 0 or hi < 0 else ""))
-            m = np.isin(vt, ["bothbad_vote", "tievote"]); y = (vt[m] == "bothbad_vote").astype(int)
-            cells += [f"{auroc(pt[m], y):.3f}", f"{auroc(u[m], y):.3f}"]
-            L.append(f"| {j} | " + " | ".join(cells) + " |")
-        L.append("")
+            t = target(I[i])
+            sg = signals(r, *cond)
+            if t is None or not sg:
+                continue
+            y.append(t); pt.append(sg[0]); u.append(sg[1])
+        if len(y) < 30:
+            return None
+        y = np.array(y); return np.mean(pt), auroc(pt, y), auroc(u, y)
+
+    def dec_or(tt):
+        return lambda it: (1 if ttype(it) == tt else 0 if ttype(it) in ("leftvote", "rightvote") else None)
+    rows = [("GenAI-Arena: all ties", "genai_arena", lambda it: int(it["label"] == "tie")),
+            ("GenAI-Arena: both bad", "genai_arena", dec_or("bothbad_vote")),
+            ("GenAI-Arena: equally good", "genai_arena", dec_or("tievote")),
+            ("EditReward: ties", "editreward", lambda it: int(it["label"] == "tie")),
+            ("Place Pulse: ties", "pp", lambda it: int(it["label"] == "tie")),
+            ("MLLM-Judge: ties (text responses)", "mllm_judge", lambda it: int(it["label"] == "tie")),
+            ("Synthetic: paraphrase tie vs decided", "synth_tie", lambda it: 1 if it["subset"] == "TG" else 0 if it["subset"] in ("DV", "DT") else None),
+            ("Synthetic: both-wrong tie vs decided", "synth_tie", lambda it: 1 if it["subset"] == "TB" else 0 if it["subset"] in ("DV", "DT") else None),
+            ("Arena text: both bad", "arena_tt", dec_or("bothbad_vote")),
+            ("Arena text: equally good", "arena_tt", dec_or("tievote"))]
+    for name, ds, tg in rows:
+        cs = []
+        for b, f in PAIRS:
+            cb, cf = cell(ds, b, tg), cell(ds, f, tg)
+            fm = lambda c: "--" if c is None else f"{c[1]:.2f} ({c[2]:.2f}) m{c[0]:.2f}"
+            cs.append(f"{fm(cb)} -> {fm(cf)}")
+        L.append(f"| {name} | " + " | ".join(cs) + " |")
     open(a.out + ".md", "w").write("\n".join(L) + "\n")
     print("\n".join(L))
 
@@ -179,9 +234,41 @@ def sim(a):
     print("\n".join(L))
 
 
+def synth(a):
+    I = items("synth_tie")
+    L = ["# Controlled tie set", "", "TG = paraphrase pair (tie, both good); TB = two different visual-detail errors (tie, both bad);",
+         "DV = correct vs one visual-detail error (needs the image); DT = correct vs added self-contradiction (text).", "",
+         "| judge | image | mean P(T) TG / TB / DV / DT | acc DV / DT | TG vs dec: P(T) / U | TB vs dec: P(T) / U | TB vs TG: P(T) / U |",
+         "|---|---|---|---|---|---|---|"]
+    for j in a.judges.split(","):
+        R = load("synth_tie", j)
+        for img, (tri, bn) in (("yes", ("tri", "bin")), ("no", ("tri_blind", "bin_blind"))):
+            rows = []
+            for i, r in R.items():
+                if i in I:
+                    sg = signals(r, tri, bn)
+                    if sg:
+                        it = I[i]; ok = None if it["label"] == "tie" else float((sg[2] > .5) == (it["label"] == 0))
+                        rows.append((it["subset"], sg[0], sg[1], ok))
+            if len(rows) < 100:
+                continue
+            sb = np.array([x[0] for x in rows]); pt = np.array([x[1] for x in rows]); u = np.array([x[2] for x in rows])
+            acc = {t: np.mean([x[3] for x in rows if x[0] == t]) for t in ("DV", "DT")}
+            dec = np.isin(sb, ["DV", "DT"])
+
+            def au(t, s, ref=dec):
+                m = ref | (sb == t); return auroc(s[m], (sb[m] == t).astype(int))
+            tbtg = np.isin(sb, ["TB", "TG"]); ytb = (sb[tbtg] == "TB").astype(int)
+            L.append(f"| {j} | {img} | " + " / ".join(f"{pt[sb == t].mean():.3f}" for t in ("TG", "TB", "DV", "DT")) +
+                     f" | {acc['DV']:.3f} / {acc['DT']:.3f} | {au('TG', pt):.3f} / {au('TG', u):.3f} | {au('TB', pt):.3f} / {au('TB', u):.3f}"
+                     f" | {auroc(pt[tbtg], ytb):.3f} / {auroc(u[tbtg], ytb):.3f} |")
+    open(a.out + ".md", "w").write("\n".join(L) + "\n")
+    print("\n".join(L))
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=["types", "sim"])
+    ap.add_argument("what", choices=["types", "sim", "synth", "ft"])
     ap.add_argument("--ds", default="genai_arena,editreward,pp")
     ap.add_argument("--sim", default="paper_tables/pair_sim.jsonl")
     ap.add_argument("--judges", default=",".join(JUDGES))
@@ -189,4 +276,4 @@ if __name__ == "__main__":
     ap.add_argument("--boot", type=int, default=1000)
     a = ap.parse_args()
     a.out = a.out or f"paper_tables/tie_{a.what}"
-    {"types": types, "sim": sim}[a.what](a)
+    {"types": types, "sim": sim, "synth": synth, "ft": ft}[a.what](a)

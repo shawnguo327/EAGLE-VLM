@@ -30,6 +30,52 @@ dataset_sets:
   ver_small: [mmrb2_s32, vlrb_s32, mmrb_s32, mjbench_s32, imagerewarddb_s32, qbench2_s32, mmrlhf_s32]   # verified sets, 700-pair caps
   s32: [genai_arena_s32, mllm_judge_s32, editreward_s32, mmrb2_s32, imagerewarddb_s32, vlrb_s32, mmrb_s32, mjbench_s32]
 phases:   # priority = order on the start command line
+  # --- 2026-11-02 levels of judge failure (evidence acquisition / localisation / weighting) and hidden-state probes.
+  #     E1: perception check of the single differing visual fact of each controlled pair (with / without image).
+  #     E2: the same pairs with the difference pointed out.  C1: real pairs, LLM-extracted differing claims, checked by
+  #     the judges.  H1/H2: verdict-position hidden states (8 / 4 layer fractions) for cross-architecture probes.
+  E1_perc:
+    type: judge
+    conds: bin,bin_blind
+    datasets: [synth_perc]
+    cost: 0.4
+    models: [qwen3vl8b, internvl35_8b, qwen25vl7b, r1reward, llavaov7b, llavacritic7b, mmrlhfrm7b, qwen35_9b]
+  E2_loc:
+    type: judge
+    conds: bin,tri
+    datasets: [synth_loc]
+    models: [qwen3vl8b, internvl35_8b, qwen25vl7b, r1reward, llavaov7b, llavacritic7b, mmrlhfrm7b, qwen35_9b]
+  C1_claims:
+    type: judge
+    wait_for: {file: /media/shawn/C/papers/VLM/judgebench_local/runs/claim_diff.log, text: CLAIMS_DONE}
+    conds: bin,bin_blind
+    datasets: [claim_check]
+    cost: 0.4
+    models: [qwen3vl8b, internvl35_8b, qwen25vl7b, llavaov7b]
+  H1_synth_hidden:
+    type: judge
+    conds: bin,tri
+    hidden: "0.125,0.25,0.375,0.5,0.625,0.75,0.875,1.0"
+    datasets: [synth_tie, synth_perc]
+    models: [qwen3vl8b, internvl35_8b, llavaov7b, qwen25vl7b, r1reward]
+  H3_synth_blind_hidden:   # surface-text control for the synth probes: same pairs, no image
+    type: judge
+    conds: bin_blind,tri_blind
+    hidden: "0.125,0.25,0.375,0.5,0.625,0.75,0.875,1.0"
+    datasets: [synth_tie]
+    models: [qwen3vl8b, internvl35_8b]
+  H4_ft_hidden:            # does judge fine-tuning lose verdict info at readout? (R1: hidden .95 vs output .83 on DV)
+    type: judge
+    conds: bin,tri
+    hidden: "0.125,0.25,0.375,0.5,0.625,0.75,0.875,1.0"
+    datasets: [synth_tie]
+    models: [llavacritic7b, mmrlhfrm7b, qwen35_9b]
+  H2_real_hidden:
+    type: judge
+    conds: bin,tri
+    hidden: "0.25,0.5,0.75,1.0"
+    datasets: [genai_arena, mllm_judge]
+    models: [internvl35_8b, qwen25vl7b, llavaov7b, r1reward]
   # --- 2026-11-02 tie mechanism: P(T) on GenAI-Arena tracks 'both bad' votes, not 'equally good' ones.
   #     S1: controlled set (make_synth_ties.py): TG both-good tie / TB both-bad tie / DV visual-detail win / DT text-flaw win,
   #         with and without the image.  T1: text pairs with both tie types (Arena 100k).  J4: base of LLaVA-Critic/MM-RLHF.
@@ -57,6 +103,11 @@ phases:   # priority = order on the start command line
     conds: bin,tri,bin_blind,tri_blind
     datasets: [synth_tie]
     models: [llavaov7b]
+  S2_synth_q35:          # 2026-11-02: Qwen3.5-9B missing from S1_synth (levels / synth tables)
+    type: judge
+    conds: bin,tri,bin_blind,tri_blind
+    datasets: [synth_tie]
+    models: [qwen35_9b]
   # --- 2026-11-01 redesign after review (comments/1.md): is "can't tell" evidence the judge did not use? (targeted
   #     visual re-check vs random / same-pixel controls) and does the verdict use the image at all? (blind / wrong image).
   #     Human ties ("close") should keep P(T) under both.
