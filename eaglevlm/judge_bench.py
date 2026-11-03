@@ -22,6 +22,13 @@ Readout = first-token log-probs over the answer keys. Conditions:
     tri_crop   A/B/T with every image center-cropped to 90% (image-nuisance)
     tri_blind  A/B/T without the question images (resp items; does the verdict use the image at all?)
     tri_wrong  A/B/T with the question images of another item of the same dataset (resp items; image-swap control)
+    bin_same   A/B with the SAME candidate in both slots (AB order: cand 0 twice; BA: cand 1 twice); pure position prior
+    bin_grid   A/B with the two candidate images composed into ONE side-by-side image (A left, B right; img items only):
+               removes the "two separate image blocks, the second closer to the answer" layout
+    bin_relabel A/B with swapped letters: the FIRST image is called "Image B", the second "Image A" (img items only);
+               separates a slot (position) preference from a letter preference.  lp keys stay the letters A/B
+    bin_qfirst A/B with the question and criterion BEFORE the candidate images (img items only); only a short
+               "Answer with one letter" follows the images
     tri_zoom   A/B/T plus close-ups of one region of source/A/B (edit items with a source image). Region = the window
                the edits changed most (aligned edits) or where A and B differ most (label-free, fixed rule). Close-ups from the native image.
     tri_zoomr  same, region of the same size at a random position (seeded by the id): untargeted control
@@ -48,14 +55,17 @@ MAXSIDE, LOWRES, HIRES = 768, 112, 1536
 MAXCHARS = 4000
 PAIR = {"bin", "tri", "str7", "bin_blind", "bin_lowres", "bin_hires", "bin_desc", "tri_p1", "tri_p2", "tri_p3",
         "tri_jpeg", "tri_crop", "tri_blind", "tri_wrong", "tri_zoom", "tri_zoomr", "tri_zoomlo",
-        "tri_sa1", "tri_sa2", "tri_sa3", "tri_sa4"}
+        "tri_sa1", "tri_sa2", "tri_sa3", "tri_sa4", "bin_same", "bin_grid", "bin_relabel", "bin_qfirst"}
 IMG_ONLY = {"tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc"}      # no-ops on text items: skipped there
 RESP_ONLY = {"bin_blind", "tri_blind", "tri_wrong"}                              # need question images + text responses
+IMGCAND_ONLY = {"bin_grid", "bin_relabel", "bin_qfirst"}                                                      # candidates must be images
 ZOOM = {"tri_zoom", "tri_zoomr", "tri_zoomlo"}                                   # need an edit source image
 ZOOM_FRAC, ZOOM_SIDE, ALIGN_TOL = 0.4, 512, 40.0        # window = 40% of width and height; close-ups shown at 512 px max side
 
 
 def applies(c, r):
+    if c in IMGCAND_ONLY:
+        return r["kind"] == "img"
     if c in RESP_ONLY:
         return r["kind"] == "resp" and bool(r["context"])
     if c in ZOOM:
@@ -173,6 +183,25 @@ def load_img(p, maxside=MAXSIDE, perturb=None):
     return im
 
 
+def grid(pa, pb, side=MAXSIDE):
+    """one side-by-side image: candidate A left, B right, each fitted to side x side, labelled under the image"""
+    from PIL import ImageDraw, ImageFont
+    ims = [load_img(p, side) for p in (pa, pb)]
+    h = max(i.size[1] for i in ims); pad, lab = 16, 40
+    W = ims[0].size[0] + ims[1].size[0] + 3 * pad
+    canvas = Image.new("RGB", (W, h + lab + 2 * pad), "white"); d = ImageDraw.Draw(canvas)
+    try:
+        f = ImageFont.truetype("DejaVuSans-Bold.ttf", 28)
+    except OSError:
+        f = ImageFont.load_default()
+    x = pad
+    for t, im in zip("AB", ims):
+        canvas.paste(im, (x, pad + (h - im.size[1]) // 2))
+        d.text((x + im.size[0] // 2 - 10, h + pad + 4), t, fill="black", font=f)
+        x += im.size[0] + pad
+    return canvas
+
+
 def clip(t):
     t = t or ""
     return t if len(t) <= MAXCHARS else t[:MAXCHARS] + " …[truncated]"
@@ -202,6 +231,8 @@ def build(r, cond, order, desc=None):
             c.append({"type": "text", "text": "Detailed description of the image(s):\n" + clip(" ".join(D["ctx"]))})
         if cond in PAIR:
             a, b = (r["cand"][0], r["cand"][1]) if order == "AB" else (r["cand"][1], r["cand"][0])
+            if cond == "bin_same":
+                b = a
             t = ASK_RESP[ask].format(crit=r["criterion"])
             if r["kind"] == "text":
                 t = t.replace("to the question about the image(s)", "to the user's question").replace(
@@ -218,8 +249,25 @@ def build(r, cond, order, desc=None):
             c.append({"type": "text", "text": "Source image:"})
             for p in r["context"]:
                 c.append({"type": "image", "image": load(p)})
-        if cond in PAIR:
+        if cond == "bin_grid":
             idx = (0, 1) if order == "AB" else (1, 0)
+            c += [{"type": "text", "text": "Candidates (Image A on the left, Image B on the right):"},
+                  {"type": "image", "image": grid(r["cand"][idx[0]], r["cand"][idx[1]], MAXSIDE)},
+                  {"type": "text", "text": ASK_IMG["bin"].format(q=q, crit=r["criterion"])}]
+        elif cond in ("bin_relabel", "bin_qfirst"):
+            idx = (0, 1) if order == "AB" else (1, 0)
+            names = "BA" if cond == "bin_relabel" else "AB"
+            if cond == "bin_qfirst":
+                c.append({"type": "text", "text": f"{q}\nCriterion: {r['criterion']} You will see Image A and then Image B. "
+                                                  "Which image is better, Image A or Image B?"})
+            for i, k in enumerate(idx):
+                c += [{"type": "text", "text": f"Image {names[i]}:"}, {"type": "image", "image": load(r["cand"][k])}]
+            c.append({"type": "text", "text": "Answer with exactly one letter: A or B." if cond == "bin_qfirst" else
+                      ASK_IMG["bin"].format(q=q, crit=r["criterion"])})
+        elif cond in PAIR:
+            idx = (0, 1) if order == "AB" else (1, 0)
+            if cond == "bin_same":
+                idx = (idx[0], idx[0])
             for i, k in enumerate(idx):
                 c += [{"type": "text", "text": f"Image {'AB'[i]}:"}, {"type": "image", "image": load(r["cand"][k])}]
                 if D is not None:
