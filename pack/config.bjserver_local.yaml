@@ -232,3 +232,111 @@ phases:   # priority = order on the start command line
     conds: tri_jpeg,tri_crop
     datasets: sub_aleatoric
     models: [internvl35_8b]
+  # --- 2026-11-03 VLM vs LLM judge differences for selective judging (Trust-or-Escalate style).
+  #     P1: position bias with image candidates: identical candidates (pure position prior), the two candidates composed
+  #     into one side-by-side image, and low resolution.  P2: the same pure prior on text-answer and text-only sets.
+  #     P3: text LLM judges, pure prior on text sets.  Z3: image ablation for the two remaining general judges.
+  P1_posbias_img:
+    type: judge
+    conds: bin_same,bin_grid,bin_lowres
+    datasets: [genai_arena, mjbench, imagerewarddb, mmrb2, qbench2, editreward]
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+  P2_posbias_txt:
+    type: judge
+    conds: bin_same
+    datasets: [vlrb, mmrb, mllm_judge, mtbench_human, arena55k]
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+  P3_posbias_llm:
+    type: judge
+    conds: bin_same
+    datasets: [mtbench_human, arena55k]
+    models: [qwen3_8b, qwen25_7b]
+  Z3_ablate_rest:
+    type: judge
+    conds: tri_blind,tri_wrong
+    datasets: resp_img
+    models: [qwen35_9b, qwen25vl7b]
+  # --- 2026-11-03 position-bias controls: letter vs slot (relabel), instruction before the images (qfirst); 32B scale check.
+  P4_posbias_ctrl:
+    type: judge
+    conds: bin_relabel,bin_qfirst
+    datasets: [genai_arena, mjbench, imagerewarddb, mmrb2, qbench2, editreward]
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+  P5_posbias_32b:
+    type: judge
+    conds: bin_same,bin_relabel,bin_qfirst
+    datasets: [genai_arena_s32, mjbench_s32, imagerewarddb_s32, mmrb2_s32]
+    models: [qwen3vl32b]
+  # --- 2026-11-03 tie storyline scale check: 32B on the full tie-bearing sets (bin + tri, both orders)
+  T2_32b_tie:
+    type: judge
+    conds: bin,tri
+    datasets: [genai_arena, genai_arena_rest, pp, mllm_judge, mtbench_human, arena55k, arena55k_rest]
+    models: [qwen3vl32b]
+  # --- 2026-11-03 full / natural-rate data for the main tie tables (items from scripts/make_rest.py)
+  N1_full_vlm:
+    type: judge
+    conds: bin,tri
+    datasets: [genai_arena_rest, arena55k_rest]
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+  N1_full_llm:
+    type: judge
+    conds: bin,tri
+    datasets: [arena55k_rest]
+    models: [qwen3_8b, qwen25_7b]
+  # --- 2026-11-03 modality-controlled test: same image pairs judged from fixed text descriptions (scripts/caption_cands.py)
+  C2_capjudge_vlm:
+    type: judge
+    conds: bin,tri
+    datasets: [genai_arena_cap, imagerewarddb_cap, pp_cap]
+    models: [qwen3vl8b, internvl35_8b]
+  C2_capjudge_llm:
+    type: judge
+    conds: bin,tri
+    datasets: [genai_arena_cap, imagerewarddb_cap, pp_cap]
+    models: [qwen3_8b]
+  # --- 2026-11-03 evening: natural-rate tie-bearing extensions of mainstream multimodal judge sets (scripts/make_rest2.py)
+  N2_ext_vlm:
+    type: judge
+    conds: bin,tri
+    datasets: [pickapic, imagerewarddb_rest, mllm_judge_rest]
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+  N2_ext_32b:
+    type: judge
+    conds: bin,tri
+    datasets: [pickapic, imagerewarddb, imagerewarddb_rest, mllm_judge_rest]
+    models: [qwen3vl32b]
+  # --- complete benchmarks (scripts/make_rest3.py): base + rest + rest2 = all of ImageRewardDB pairs / MLLM-as-a-Judge
+  N3_rest2_vlm:
+    type: judge
+    conds: bin,tri
+    datasets: [imagerewarddb_rest2, mllm_judge_rest2]
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+  N3_rest2_32b:
+    type: judge
+    conds: bin,tri
+    datasets: [imagerewarddb_rest2, mllm_judge_rest2]
+    models: [qwen3vl32b]
+  # --- 2026-11-03 night: pointwise absolute quality per candidate (1-9), for routing ambiguous pairs to pointwise
+  #     ("both bad" is invisible to a pairwise preference); absolute prompts SCORE_IMG / SCORE_EDIT / SCORE_RESP
+  W1_point_vlm:
+    type: judge
+    conds: score
+    datasets: [genai_arena, genai_arena_rest, pickapic, imagerewarddb, imagerewarddb_rest, imagerewarddb_rest2, mllm_judge, mllm_judge_rest, mllm_judge_rest2]
+    models: [qwen3vl8b, internvl35_8b]
+  W1_point_32b:
+    type: judge
+    conds: score
+    datasets: [genai_arena, genai_arena_rest, pickapic, imagerewarddb, imagerewarddb_rest, imagerewarddb_rest2, mllm_judge, mllm_judge_rest, mllm_judge_rest2]
+    models: [qwen3vl32b]
+  # --- Pick-a-Pic standard eval splits (test_unique + validation_unique; scripts/make_pickapic_u.py)
+  N4_pu_vlm:
+    type: judge
+    conds: bin,tri,score
+    datasets: [pickapic_u]
+    models: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b]
+  N4_pu_32b:
+    type: judge
+    conds: bin,tri,score
+    datasets: [pickapic_u]
+    models: [qwen3vl32b]
