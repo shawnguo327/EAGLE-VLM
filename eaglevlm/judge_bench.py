@@ -163,10 +163,16 @@ PERSONA = {
                "heavily against a candidate.",
     "tri_sa4": "You are annotator 4, an ordinary user. You prefer one candidate only when the difference would be obvious "
                "to you at a glance."}
-SCORE_RESP = ("Question: {q}\n\n[Response]\n{a}\n\nCriterion: {crit} Rate this response on an integer scale "
-              "from 1 (very poor) to 9 (excellent). Answer with exactly one digit.")
-SCORE_IMG = ("{q}\nCriterion: {crit} Rate this image on an integer scale from 1 (very poor) to 9 (excellent). "
+SCORE_RESP = ("Question: {q}\n\n[Response]\n{a}\n\nRate the ABSOLUTE quality of this response to the question about the "
+              "image(s): how helpful, accurate and appropriate it is, on an integer scale from 1 (very poor, unacceptable) "
+              "to 9 (excellent). Answer with exactly one digit.")
+SCORE_IMG = ("Prompt: {q}\nRate the ABSOLUTE quality of this image: how well it follows the prompt and how good it looks "
+             "(no artifacts or distortions), on an integer scale from 1 (very poor, unacceptable) to 9 (excellent). "
              "Answer with exactly one digit.")
+SCORE_EDIT = ("Edit instruction: {q}\nRate the ABSOLUTE quality of this edited image: how well it applies the instruction to "
+              "the source image while preserving everything else and looking natural, on an integer scale from 1 (very poor, "
+              "unacceptable) to 9 (excellent). Answer with exactly one digit.")
+# 2026-11-03: absolute (pointwise) prompts; the pairwise criterion ("Prefer the image that ...") is not used here
 
 
 def load_img(p, maxside=MAXSIDE, perturb=None):
@@ -242,7 +248,7 @@ def build(r, cond, order, desc=None):
                                               f"[Response B]\n{clip(b)}\n\n" + t})
         else:
             x = r["cand"][0] if order == "A" else r["cand"][1]
-            c.append({"type": "text", "text": SCORE_RESP.format(q=clip(r["question"]), a=clip(x), crit=r["criterion"])})
+            c.append({"type": "text", "text": SCORE_RESP.format(q=clip(r["question"]), a=clip(x))})
     else:
         q = r["question"]
         if r["context"]:
@@ -283,7 +289,7 @@ def build(r, cond, order, desc=None):
         else:
             p = r["cand"][0] if order == "A" else r["cand"][1]
             c += [{"type": "text", "text": "Candidate image:"}, {"type": "image", "image": load_img(p)},
-                  {"type": "text", "text": SCORE_IMG.format(q=q, crit=r["criterion"])}]
+                  {"type": "text", "text": (SCORE_EDIT if r["context"] else SCORE_IMG).format(q=q)}]
     return [{"role": "user", "content": c}]
 
 

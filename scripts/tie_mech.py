@@ -20,23 +20,37 @@ JUDGES = ["qwen3vl8b", "internvl35_8b", "qwen35_9b", "qwen25vl7b", "r1reward", "
 H = lambda p: -(p * np.log(p + 1e-12) + (1 - p) * np.log(1 - p + 1e-12))
 
 
-def items(ds, dirs=ITEMS_DEF):
-    for d in dirs.split(","):
-        p = f"{d}/{ds}.jsonl"
-        if os.path.exists(p):
-            return {r["id"]: r for r in map(json.loads, open(p))}
-    return {}
+def items(ds, dirs=ITEMS_DEF, rest=True):
+    """items of ds; with rest=True also the '<ds>_rest' complement (full GenAI-Arena, natural-rate Arena 55k; make_rest.py)"""
+    out = {}
+    for name in [ds] + ([ds + "_rest", ds + "_rest2"] if rest else []):
+        for d in dirs.split(","):
+            p = f"{d}/{name}.jsonl"
+            if os.path.exists(p):
+                out.update({r["id"]: r for r in map(json.loads, open(p))}); break
+    return out
 
 
 def load(ds, m, dirs=DIRS_DEF, conds=None):
-    R = {}
+    # '_full' is NOT merged: <ds>_full.jsonl was built with a different A/B orientation for shared ids (common.orient is
+    # seeded over the whole list), so its outputs do not align with the labels of <ds>.jsonl.  '_edit' / '_s32' share the
+    # base orientation (checked 2026-11-03); '_rest' items are disjoint from the base.  Conflicting duplicates are reported.
+    R, src, conflicts = {}, {}, 0
     for d in [d for pat in dirs.split(",") for d in sorted(glob.glob(pat))]:
-        for suf in ("", "_edit", "_full", "_s32"):
+        for suf in ("", "_edit", "_s32", "_rest", "_rest2"):
             for f in glob.glob(f"{d}/{ds}{suf}__{m}.jsonl") + glob.glob(f"{d}/{ds}{suf}__{m}.s*.jsonl"):
                 for l in open(f):
                     x = json.loads(l)
                     if "lp" in x and (conds is None or x["cond"] in conds):
-                        R.setdefault(x["id"], {})[(x["cond"], x["order"])] = _sm(x["lp"])
+                        k = (x["id"], x["cond"], x["order"]); v = _sm(x["lp"])
+                        if k in src and src[k][0] != f:
+                            old = R[x["id"]][(x["cond"], x["order"])]
+                            if any(abs(old.get(c, 0) - v.get(c, 0)) > .25 for c in set(old) | set(v)):   # reruns differ by batch numerics (p99 < .08)
+                                conflicts += 1
+                            continue                      # keep the first source
+                        src[k] = (f,); R.setdefault(x["id"], {})[(x["cond"], x["order"])] = v
+    if conflicts:
+        print(f"[load] {ds} {m}: {conflicts} conflicting duplicate outputs across files (kept the first source)", file=sys.stderr)
     return R
 
 
