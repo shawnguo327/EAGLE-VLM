@@ -14,7 +14,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "eaglevlm"))
 from eaglev_stats import _sm, auroc
 
-DIRS_DEF = "results,results_A,/media/shawn/C/papers/VLM/judgebench_local/runs/*/raw"
+DIRS_DEF = "results,results_A,/media/shawn/C/papers/VLM/judgebench_local/runs/*/raw,/media/shawn/C/papers/VLM/judgebench_local/a100_sync/*/*,/media/shawn/C/papers/VLM/judgebench_local/a100_sync/*"
 ITEMS_DEF = "items,/media/shawn/C/papers/VLM/judgebench_local/items"
 JUDGES = ["qwen3vl8b", "internvl35_8b", "qwen35_9b", "qwen25vl7b", "r1reward", "llavaov7b", "llavacritic7b", "mmrlhfrm7b", "qwen3_8b", "qwen25_7b"]
 H = lambda p: -(p * np.log(p + 1e-12) + (1 - p) * np.log(1 - p + 1e-12))
@@ -40,7 +40,12 @@ def load(ds, m, dirs=DIRS_DEF, conds=None):
         for suf in ("", "_edit", "_s32", "_rest", "_rest2"):
             for f in glob.glob(f"{d}/{ds}{suf}__{m}.jsonl") + glob.glob(f"{d}/{ds}{suf}__{m}.s*.jsonl"):
                 for l in open(f):
-                    x = json.loads(l)
+                    try:
+                        x = json.loads(l)
+                    except ValueError:          # a line cut by a running writer or a sync in progress
+                        continue
+                    if x.get("cond") == "score" and "/runs/" not in d and "a100_sync" not in d:
+                        continue                # 11-01 pointwise runs used the old (pairwise-criterion) prompt
                     if "lp" in x and (conds is None or x["cond"] in conds):
                         k = (x["id"], x["cond"], x["order"]); v = _sm(x["lp"])
                         if k in src and src[k][0] != f:
