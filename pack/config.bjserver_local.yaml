@@ -381,3 +381,15 @@ phases:   # priority = order on the start command line
     conds: bin_hires,tri_hires,score_hires
     datasets: [mllm_judge_big, mllm_judge_sp_big, genai_arena_big, imagerewarddb_big]
     models: [qwen3vl8b]
+  # --- 2026-11-05 (later): resolution check of the C3 router on more judges - Qwen3.5-9B and Qwen2.5-VL-7B (native dynamic
+  #     resolution) on the >768-px items of the two MLLM-as-a-Judge sets; dedicated judges on the score-pair set (main C3 set)
+  R2_hires:
+    type: judge
+    conds: bin_hires,tri_hires,score_hires
+    datasets: [mllm_judge_sp_big, mllm_judge_big]
+    models: [qwen35_9b, qwen25vl7b]
+  J8_judges_sp:
+    type: judge
+    conds: bin,tri
+    datasets: [mllm_judge_sp]
+    models: [r1reward, llavacritic7b]
