@@ -2,13 +2,14 @@
 and graded claims + pointwise absolute-level router), alpha = .2, mean over VLM judges (and Qwen3-VL-32B separately).
 Inputs (paper_figures/data/): chain.md, chain_sp.md (pairwise chain), router_v2.jsonl (router).
 Router variant shown: 'router: cells' (pre-specified primary: interpretable map); the learned variants are in the appendix table.
-usage: python3 paper_figures/make_main_table.py"""
+usage: python3 paper_figures/make_main_table.py [data_dir]"""
 import collections, datetime, json, os, re
 
-HERE = os.path.dirname(os.path.abspath(__file__)); DATA = f"{HERE}/data"
+import sys
+HERE = os.path.dirname(os.path.abspath(__file__)); DATA = sys.argv[1] if len(sys.argv) > 1 else f"{HERE}/data"
 STAMP = datetime.datetime.now().strftime("%Y%m%d_%H%M"); OUT = f"{HERE}/tables_{STAMP}"; os.makedirs(OUT, exist_ok=True)
 VLM = {"qwen3vl8b", "internvl35_8b", "qwen35_9b", "qwen25vl7b", "qwen3vl32b", "internvl35_38b"}
-NICE = {"mllm_judge_sp": "MLLM-J score pairs", "imagerewarddb": "ImageRewardDB", "genai_arena/generation": "GenAI generation",
+NICE = {"mllm_judge_sp": "MLLM-J score pairs", "genaibench": "GenAI-Bench", "polaris": "Polaris", "agiqa3k": "AGIQA-3K", "imagerewarddb": "ImageRewardDB", "genai_arena/generation": "GenAI generation",
         "genai_arena/edition": "GenAI edit", "mllm_judge": "MLLM-J pairs", "mtbench_human": "MT-Bench", "arena55k": "Arena-55k"}
 SETS = list(NICE); PRIMARY = "router: cells"; ALPHA = 0.2
 
