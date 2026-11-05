@@ -21,7 +21,10 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--out", default="paper_tables/mondrian.md")
 ap.add_argument("--splits", type=int, default=50)
 ap.add_argument("--delta", type=float, default=0.1)
+ap.add_argument("--grouping", default="task", choices=["task", "qa_vs_open"],
+                help="task: one group per source task (>= 300 pairs); qa_vs_open: two groups fixed by task definition")
 a = ap.parse_args()
+QA = {"ChartQA", "infographicsVQA", "textVQA", "mathvista", "ScienceQA", "mind2web"}     # visual QA with a reference answer
 AL = [0.2, 0.3]; GRID = np.linspace(0, 1, 201)[1:]; D = np.arange(1, 10)
 VLM = ["qwen3vl8b", "internvl35_8b", "qwen35_9b", "qwen25vl7b", "qwen3vl32b", "internvl35_38b"]
 
@@ -75,7 +78,9 @@ for ds in ("mllm_judge_sp", "mllm_judge"):
     I = eval_items(ds, items(ds, rest=(ds != "mllm_judge_sp"))); ids = sorted(I)
     y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids]); n = len(y)
     sub = np.array([I[i]["subset"] for i in ids]); cnt = collections.Counter(sub)
-    grp = np.array([s if cnt[s] >= 300 else "other" for s in sub]); G = sorted(set(grp))
+    grp = (np.array([s if cnt[s] >= 300 else "other" for s in sub]) if a.grouping == "task" else
+           np.array(["visual QA (reference answer)" if s in QA else "open-ended" for s in sub]))
+    G = sorted(set(grp)); tsk = np.array([s if cnt[s] >= 300 else "other" for s in sub])
     FJ = {j: feats(ds, j, ids, I) for j in VLM}; FJ = {j: v for j, v in FJ.items() if v is not None}
     PW = {j: pfeats(ds, j, ids) for j in FJ}; PW = {j: v for j, v in PW.items() if v is not None}
     variants = []
@@ -106,10 +111,10 @@ for ds in ("mllm_judge_sp", "mllm_judge"):
                     e = E[te][np.arange(len(te)), np.maximum(ch, 0)]; st = ok & (ch == 0)
                     R[(rule, al)].append((ok.mean(), np.where(~ok, 3, np.where(ch == 2, 2, 1)).mean(), st.mean(), e[st].sum(), st.sum(),
                                           e[ok].mean() if ok.any() else np.nan))
-                    if rule == "global" and al == .2:
-                        for g in G:
-                            mk = ok & (grp[te] == g)
-                            per_task[g].append((mk.sum() / max((grp[te] == g).sum(), 1), e[mk].mean() if mk.any() else np.nan))
+                    if al == .2:
+                        for g in sorted(set(tsk)):
+                            mk = ok & (tsk[te] == g)
+                            per_task[(rule, g)].append((mk.sum() / max((tsk[te] == g).sum(), 1), e[mk].mean() if mk.any() else np.nan))
         L += [f"### {vname}", "", "| rule | " + " | ".join(f"alpha {x}" for x in AL) + " |", "|---|---|---|"]
         for rule in ("global", "mondrian"):
             cells = []
@@ -119,10 +124,14 @@ for ds in ("mllm_judge_sp", "mllm_judge"):
                 cells.append(f"{Z[:, 0].mean():.2f} / {Z[:, 1].mean():.2f} / {Z[:, 2].mean():.2f} / "
                              f"{'none' if np.isnan(es) else f'{es:.2f}'} / {np.nanmean(Z[:, 5]):.3f}")
             L.append(f"| {rule} | " + " | ".join(cells) + " |")
-        L += ["", "per task under the GLOBAL rule (alpha .2): acceptance / realised risk", "", "| task | n | acceptance | risk |", "|---|---|---|---|"]
-        for g in G:
-            Z = np.array(per_task[g], float)
-            L.append(f"| {g} | {(grp == g).sum()} | {Z[:, 0].mean():.2f} | {np.nanmean(Z[:, 1]) if (~np.isnan(Z[:, 1])).any() else float('nan'):.3f} |")
+        L += ["", f"per source task (alpha .2): acceptance / realised risk, global rule vs group rule (grouping = {a.grouping})", "",
+              "| task | group | n | global: acceptance | global: risk | group rule: acceptance | group rule: risk |", "|---|---|---|---|---|---|---|"]
+        for g in sorted(set(tsk)):
+            cells = []
+            for rule in ("global", "mondrian"):
+                Z = np.array(per_task[(rule, g)], float)
+                cells += [f"{Z[:, 0].mean():.2f}", f"{np.nanmean(Z[:, 1]) if (~np.isnan(Z[:, 1])).any() else float('nan'):.3f}"]
+            L.append(f"| {g} | {grp[tsk == g][0]} | {(tsk == g).sum()} | " + " | ".join(cells) + " |")
         L += ["", f"tie precision among the top-k% pairs by head P(tie) (base rate {np.mean(y == 2):.2f}): "
               + ", ".join(f"top {int(q * 100)}%: {np.mean(v):.2f}" for q, v in tieprec.items()), ""]
         print(vname, ds, flush=True)
