@@ -1,0 +1,5 @@
+# VLMEvalKit env pins (A100, 2026-11-05) needed for the official InternVL2_5-8B-BoN-8 path (InternVL2.5 / VisualPRM remote code):
+litellm<=1.82.6          # 1.82.7 / 1.82.8 were malicious uploads
+sentencepiece==0.2.0     # 0.2.2 rejects the InternLM2 tokenizer ("piece must not include null character")
+transformers==4.47.1     # InternVL2.5 remote code fails under transformers 5 (all_tied_weights_keys)
+datasets==3.6.0          # datasets 5.x needs huggingface_hub >= 1.x, which transformers 4.47 does not allow
