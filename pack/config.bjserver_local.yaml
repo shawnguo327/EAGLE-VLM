@@ -340,3 +340,44 @@ phases:   # priority = order on the start command line
     conds: bin,tri,score
     datasets: [pickapic_u]
     models: [qwen3vl32b]
+  # --- 2026-11-04: trained-judge baselines (R1-Reward ICLR26, LLaVA-Critic CVPR25) on the full tie-bearing sets;
+  #     pointwise + blind completion for the remaining VLMs
+  J6_judges_full:
+    type: judge
+    conds: bin,tri
+    datasets: [mllm_judge, mllm_judge_rest, mllm_judge_rest2, genai_arena, genai_arena_rest, pickapic_u, imagerewarddb, imagerewarddb_rest, imagerewarddb_rest2]
+    models: [r1reward, llavacritic7b]
+  W2_point_rest:
+    type: judge
+    conds: score
+    datasets: [mllm_judge, mllm_judge_rest, mllm_judge_rest2, genai_arena, genai_arena_rest, pickapic_u, imagerewarddb, imagerewarddb_rest, imagerewarddb_rest2]
+    models: [qwen35_9b, qwen25vl7b]
+  B1_blind_rest:
+    type: judge
+    conds: bin_blind,tri_blind
+    datasets: [mllm_judge, mllm_judge_rest, mllm_judge_rest2]
+    models: [qwen35_9b, qwen25vl7b]
+  # --- 2026-11-05: tie-prompt paraphrases (phenomenon 1 robustness) + LLaVA-OV base as the control for LLaVA-Critic
+  B2_para_rest:
+    type: judge
+    conds: tri_p1,tri_p2,tri_p3
+    datasets: [mllm_judge, mllm_judge_rest, mllm_judge_rest2, genai_arena, genai_arena_rest]
+    models: [qwen35_9b, qwen25vl7b]
+  J7_llavaov_full:
+    type: judge
+    conds: bin,tri
+    datasets: [mllm_judge, mllm_judge_rest, mllm_judge_rest2, genai_arena, genai_arena_rest, pickapic_u, imagerewarddb, imagerewarddb_rest, imagerewarddb_rest2]
+    models: [llavaov7b]
+  # --- 2026-11-05: MLLM-as-a-Judge SCORE split made pairwise (human 1-5 per answer; scripts/make_mj_scorepairs.py)
+  SP_scorepairs:
+    type: judge
+    conds: bin,tri,score
+    datasets: [mllm_judge_sp]
+    models: [qwen3vl8b, internvl35_8b]
+  # --- 2026-11-05: resolution ablation - items with an image > 768 px, judged at full resolution (long side <= 1536);
+  #     the 768-px reference outputs already exist under the base dataset names
+  R1_hires:
+    type: judge
+    conds: bin_hires,tri_hires,score_hires
+    datasets: [mllm_judge_big, mllm_judge_sp_big, genai_arena_big, imagerewarddb_big]
+    models: [qwen3vl8b]

@@ -15,6 +15,7 @@ Readout = first-token log-probs over the answer keys. Conditions:
     bin_blind  A/B without the question images (resp items only; reliance on the language prior)
     bin_lowres A/B with every image at LOWRES px (dependence on fine detail)
     bin_hires  A/B with images at HIRES px (more visual evidence; use --tiling for InternVL)
+    tri_hires  A/B/T with images at HIRES px; score_hires: pointwise 1..9 with the candidate at HIRES px (resolution ablation)
     bin_desc   A/B with generated detailed descriptions added to the images (--desc; see describe.py)
     tri_p1..3  A/B/T with three paraphrased instructions (prompt-nuisance ensemble)
     tri_sa1..4 A/B/T under four annotator personas (zero-shot simulated annotators, Jung et al. ICLR 2025)
@@ -53,10 +54,10 @@ MODELS = {"qwen3vl8b": PP / "Qwen3-VL-8B-Instruct", "qwen35_9b": PP / "Qwen3.5-9
           "qwen3vl32b": PP / "Qwen3-VL-32B-Instruct", "internvl35_8b": PP / "InternVL3_5-8B-HF"}
 MAXSIDE, LOWRES, HIRES = 768, 112, 1536
 MAXCHARS = 4000
-PAIR = {"bin", "tri", "str7", "bin_blind", "bin_lowres", "bin_hires", "bin_desc", "tri_p1", "tri_p2", "tri_p3",
+PAIR = {"bin", "tri", "str7", "bin_blind", "bin_lowres", "bin_hires", "tri_hires", "bin_desc", "tri_p1", "tri_p2", "tri_p3",
         "tri_jpeg", "tri_crop", "tri_blind", "tri_wrong", "tri_zoom", "tri_zoomr", "tri_zoomlo",
         "tri_sa1", "tri_sa2", "tri_sa3", "tri_sa4", "bin_same", "bin_grid", "bin_relabel", "bin_qfirst"}
-IMG_ONLY = {"tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc"}      # no-ops on text items: skipped there
+IMG_ONLY = {"tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc", "tri_hires", "score_hires"}      # no-ops on text items: skipped there
 RESP_ONLY = {"bin_blind", "tri_blind", "tri_wrong"}                              # need question images + text responses
 IMGCAND_ONLY = {"bin_grid", "bin_relabel", "bin_qfirst"}                                                      # candidates must be images
 ZOOM = {"tri_zoom", "tri_zoomr", "tri_zoomlo"}                                   # need an edit source image
@@ -121,7 +122,7 @@ def closeup(p, box, lo=False):
 def keys_of(c):
     if c.startswith("tri"):
         return ["A", "B", "T"]
-    return {"str7": [str(i) for i in range(1, 8)], "score": [str(i) for i in range(1, 10)]}.get(c, ["A", "B"])
+    return {"str7": [str(i) for i in range(1, 8)], "score": [str(i) for i in range(1, 10)], "score_hires": [str(i) for i in range(1, 10)]}.get(c, ["A", "B"])
 
 ASK_RESP = {
     "bin": "You are judging the two responses to the question about the image(s). Criterion: {crit} "
@@ -216,7 +217,7 @@ def clip(t):
 def build(r, cond, order, desc=None):
     """Chat messages for one call. `desc` = {id: {"ctx": [str], "cand": [str, str]}} for bin_desc."""
     c = []
-    ms = {"bin_lowres": LOWRES, "bin_hires": HIRES}.get(cond, MAXSIDE)
+    ms = {"bin_lowres": LOWRES, "bin_hires": HIRES, "tri_hires": HIRES, "score_hires": HIRES}.get(cond, MAXSIDE)
     pert = {"tri_jpeg": "jpeg", "tri_crop": "crop"}.get(cond)
     load = lambda p: load_img(p, ms, pert)
     ask = cond if cond in ("tri", "str7", "tri_p1", "tri_p2", "tri_p3") else "tri" if cond.startswith("tri") else "bin"
@@ -288,7 +289,7 @@ def build(r, cond, order, desc=None):
             c.append({"type": "text", "text": ASK_IMG[ask].format(q=q, crit=r["criterion"])})
         else:
             p = r["cand"][0] if order == "A" else r["cand"][1]
-            c += [{"type": "text", "text": "Candidate image:"}, {"type": "image", "image": load_img(p)},
+            c += [{"type": "text", "text": "Candidate image:"}, {"type": "image", "image": load(p)},
                   {"type": "text", "text": (SCORE_EDIT if r["context"] else SCORE_IMG).format(q=q)}]
     return [{"role": "user", "content": c}]
 
