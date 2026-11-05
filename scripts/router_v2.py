@@ -65,6 +65,9 @@ def fst(Sc, Ec, Sf, Ef, al, joint):
 
 
 def level_labels(ds, I, ids):
+    if "scale" in I[ids[0]].get("meta", {}):                          # agiqa3k / polaris: a quarter of the score range
+        lo, hi = I[ids[0]]["meta"]["scale"]; q = (hi - lo) / 4
+        s = np.array([I[i]["meta"]["scores"] for i in ids], float); return np.abs(s[:, 0] - s[:, 1]) <= q, s.max(1) <= lo + q
     if ds in ("mllm_judge_sp", "genaibench"):                       # human 1-5 per answer / mean of 3 raters per image
         s = np.array([I[i]["meta"]["scores"] for i in ids], float); return np.abs(s[:, 0] - s[:, 1]) <= 1, s.max(1) <= 2
     if ds == "imagerewarddb":
@@ -100,7 +103,7 @@ rec = []; L = ["# Router v2: pairwise -> pointwise absolute-level claims", "",
                "informative = strict + level claims.  routed = share of pairs that query pointwise.", ""]
 for spec in a.sets.split(","):
     ds, sub = (spec.split("/") + [None])[:2]
-    I = items(ds, rest=(ds not in ("mllm_judge_sp", "genaibench"))); I = {i: x for i, x in I.items() if sub is None or x["subset"] == sub}
+    I = items(ds, rest=(ds not in ("mllm_judge_sp", "genaibench", "agiqa3k", "polaris"))); I = {i: x for i, x in I.items() if sub is None or x["subset"] == sub}
     ids_all = sorted(I)
     PJ = {j: per_judge(ds, j, I) for j in a.judges.split(",")}
     PW = {j: pointwise(ds, j, ids_all) for j in PJ if len(PJ[j]) >= .95 * len(I)}
