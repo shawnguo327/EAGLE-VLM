@@ -14,8 +14,8 @@ def softmax_lp(lp):
 
 
 class Store:
-    def __init__(self, items_dirs, output_dirs, items_override=None):
-        self.items_dirs = list(items_dirs); self.output_dirs = list(output_dirs)
+    def __init__(self, items_dirs, output_dirs, items_override=None, snapshot=None):
+        self.items_dirs = list(items_dirs); self.output_dirs = list(output_dirs); self.snapshot = snapshot
         self.items_override = items_override or {}      # dataset -> explicit item file (e.g. the 600-prompt GenAI-Bench snapshot)
         self.manifest = {}
 
@@ -32,6 +32,13 @@ class Store:
     def items(self, ds, rest=None):
         rest = (ds not in NO_REST) if rest is None else rest
         out = {}
+        if self.snapshot:                                     # frozen snapshot (eaglevlm.pipeline.freeze)
+            import gzip
+            for name in [ds] + ([ds + "_rest", ds + "_rest2"] if rest else []):
+                p = f"{self.snapshot}/items/{name}.jsonl.gz"
+                if os.path.exists(p):
+                    self._note(p, "items"); out.update({r["id"]: r for r in map(json.loads, gzip.open(p, "rt"))})
+            return out
         if ds in self.items_override:
             p = self.items_override[ds]; self._note(p, "items")
             return {r["id"]: r for r in map(json.loads, open(p))}
@@ -44,6 +51,17 @@ class Store:
 
     # ---------------- judge outputs
     def load(self, ds, model, conds=None):
+        if self.snapshot:
+            p = f"{self.snapshot}/outputs/dataset={ds}/judge={model}.parquet"
+            if not os.path.exists(p):
+                return {}
+            import pyarrow.parquet as pq
+            self._note(p, "outputs"); t = pq.read_table(p).to_pydict(); R = {}
+            toks = [k for k in t if k not in ("item_id", "cond", "order")]
+            for n in range(len(t["item_id"])):
+                if conds is None or t["cond"][n] in conds:
+                    R.setdefault(t["item_id"][n], {})[(t["cond"][n], t["order"][n])] = {k: t[k][n] for k in toks if t[k][n] is not None}
+            return R
         R, src = {}, {}
         for d in [d for pat in self.output_dirs for d in sorted(glob.glob(pat))]:
             for suf in SUFFIXES:

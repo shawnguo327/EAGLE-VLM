@@ -35,7 +35,7 @@ def load_cfg(path):
 def _unit(args):
     mod, cfg = args
     from eaglevlm.pipeline.io import Store
-    st = Store(cfg["paths"]["items"], cfg["paths"]["outputs"], cfg["paths"].get("items_override"))
+    st = Store(cfg["paths"]["items"], cfg["paths"]["outputs"], cfg["paths"].get("items_override"), cfg["paths"].get("snapshot"))
     logs = []
     rows = importlib.import_module(mod).run(cfg, st, logs.append)
     return rows, st.manifest, logs

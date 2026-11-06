@@ -1,0 +1,13 @@
+# same as certify_check, but read only from the frozen snapshot (must give identical numbers)
+name: certify_check_snapshot
+type: certify
+include: ../paths.bjserver.yaml
+paths: {snapshot: /media/shawn/C/papers/VLM/results/raw_snapshot/20261105}
+datasets: [mtbench_human, genai_arena/edition]
+judges: [qwen3vl8b, internvl35_8b]
+methods: [P1, P2, P4, T1, G2, G3, G5]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+split: {fit: 0.25, cal: 0.25}
+n_splits: 100
+min_coverage: 0.95

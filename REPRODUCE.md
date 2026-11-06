@@ -44,6 +44,15 @@ Not yet migrated (still run as individual scripts in `scripts/`, results as mark
 mechanism analyses for section 2 (`phenomena.py`, `decompose.py`, `tie_anatomy.py`, `edit_bothbad.py`, `mondrian.py`),
 the resolution ablation (`res_ablation.py`), the LoRA evaluation (`lora_eval.py`) and the Best-of-N analysis.
 
+## Frozen raw outputs (snapshot)
+
+`python -m eaglevlm.pipeline.freeze configs/freeze.yaml` writes every raw judge output used by the paper (through the same
+loader rules) plus the item files into one compressed snapshot:
+`<results>/raw_snapshot/<date>/outputs/dataset=<ds>/judge=<judge>.parquet` (one row per item x condition x order with the
+normalised answer-token probabilities A, B, T, 1-9; zstd) and `items/*.jsonl.gz`, with a manifest of source and snapshot
+md5s (84 MB in total on 2026-11-05). To run any analysis from the snapshot alone, add `paths: {snapshot: <dir>}` to its
+config (see `configs/exp/certify_check_snapshot.yaml`; it reproduces the live-source results exactly).
+
 ## Stage 1: judge inference (GPU; outputs are saved, do not re-run)
 
 * Items (human labels): converters in `data_prep/convert/` and `scripts/make_*.py` write `items/<dataset>.jsonl`.
