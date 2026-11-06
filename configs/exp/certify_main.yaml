@@ -4,7 +4,7 @@ type: certify
 include: ../paths.bjserver.yaml
 datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k]
 judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b, r1reward, llavacritic7b]
-methods: [P1, P1s, P2, P3, P4, TC, T1, T2, G0, G1, G2, G3, G4, G5]
+methods: [P1, P1s, P2, P3, P4, TC, CPL, SL, SA, T1, T2, T3, G0, G1, G2, G2s, G2b, G3, G4, G5]
 alphas: [0.1, 0.2, 0.3]
 delta: 0.1
 split: {fit: 0.25, cal: 0.25}      # test = the rest (0.5)

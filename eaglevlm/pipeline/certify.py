@@ -12,14 +12,32 @@ Methods:
   G0  graded, no calibrator       G1  graded + calibrator, single-order features      G2  graded + calibrator (ours)
   G3  graded, every claim level <= alpha (intersection-union)
   G4  graded, overall AND strict-claim risk <= alpha, one threshold
-  G5  graded, overall AND strict-claim risk <= alpha, separate strict / tie-weak thresholds (Bonferroni over 10 strict values)
+  G5  graded, overall AND strict-claim risk <= alpha, separate strict / tie-weak thresholds (Bonferroni over 11 strict
+      values, one of which switches strict claims off)
+  G3 / G4 / G5 (and router 'every level'): a claim level that can be issued but is absent from calibration is uncertified
   G2pw / G5pw  as G2 / G5 with the judge's pointwise (single-candidate 1-9 score) features added to the calibrator
   P4pw  compute-matched control: P4 (strict claims only) with the same pointwise-augmented calibrator
+  CPL / CPA  split-conformal prediction sets over {A, B, T} from the same 3-class calibrator as ours: LAC (Sadinle et al.,
+      JASA 2019; score 1 - p(y)) and APS (Romano et al., NeurIPS 2020; cumulative mass, non-randomised).  They guarantee
+      marginal miscoverage <= alpha over ALL pairs (a full set counts as covered); here a full set is an abstention and
+      the risk is measured among the other sets, as for every method (an empty set is an error)
+  PWT  pointwise grading (single-answer scores, as in MT-Bench's single-answer mode): the candidate with the higher
+      expected 1-9 score wins, tie if |difference| <= eps tuned on the calibration split; a claim for every pair, no guarantee
+  PWL  the same pointwise difference as a confidence score for strict claims, certified with LTT (ties count as errors)
+  Same-target baselines (same LTT selective-risk certificate as G2; review W8):
+  G2s  singleton claims only ({A}, {B}, {T}; no weak level) from the same calibrator - isolates the weak claims
+  G2b  graded claims from a calibrator that sees only the forced-choice (binary) signals, no tie-prompt p(T)
+  SL / SA  generic set predictors over {A, B, T} certified with the same LTT: LAC sets {y: p(y) >= 1 - q} and APS sets
+       (labels by decreasing probability until the mass reaches q); a full set is an abstention, an empty set too
+  T3   simulated-annotator signal keeping the tie: the persona prompts' A/B/T probabilities (averaged over personas and
+       orders) turned into graded claims and certified with the same LTT (on benchmarks where the personas were run)
   judge "jury:<m1>+<m2>+...": the calibrator sees the features of all member judges (pairs judged by every member);
   P-type baselines use the members' averaged probabilities; T methods are not defined for a jury
 Optional cfg 'group: meta.<key>' (e.g. meta.question_index for Best-of-N candidate pairs): the fit / calibration / test
 split is drawn over groups, so all pairs of a group fall in the same part; without it the split is over pairs, as in the
 original scripts.
+Summary columns risk / guarantee_success / significant_violation are over the splits with at least one answer (as
+before); splits_answered, pooled_risk, guarantee_success_all and significant_all make the denominators explicit.
 Per split and alpha one CSV row: acceptance, mean set size, decisive share, strict errors / strict claims, accepted,
 errors, risk, violated (risk > alpha), significant (one-sided binomial p < .05 that risk > alpha), empty, and the human ties
 among the accepted pairs and among the strict claims (summary: tie_share_accepted / tie_share_strict, pooled over splits;
@@ -30,7 +48,7 @@ from scipy.stats import binom
 from sklearn.linear_model import LogisticRegression
 
 GRID = np.linspace(0, 1, 201)[1:]
-LS = np.linspace(.04, .40, 10)
+LS = np.r_[-np.inf, np.linspace(.04, .40, 10)]       # strict-claim thresholds of G5; -inf = strict claims switched off
 SA = ["tri_sa1", "tri_sa2", "tri_sa3", "tri_sa4"]
 H = lambda p: -(p * np.log(p + 1e-12) + (1 - p) * np.log(1 - p + 1e-12))
 
@@ -66,13 +84,19 @@ def ltt(S, E, al, delta, Sf=None, Ef=None, grid=GRID):
     return best
 
 
+def lvl_p(E, mk, c, al):
+    """p-value of 'the risk of claim level c exceeds alpha'.  A level the policy can issue but that does not occur in the
+    calibration sample is NOT certified (p = 1): an unobserved level is no evidence of a safe one.  Only a level the
+    policy switches off by construction may be left out (review W4; theory notes, binomial_pvalue)."""
+    n = int(mk.sum())
+    return float(binom.cdf(int(E[mk, c].sum()), n, al)) if n else 1.0
+
+
 def pjoint(S, E, lam, al):
-    ok, ch = claims(S, lam); ps = [0.0]
-    for c in range(S.shape[1]):
-        mk = ok & (ch == c)
-        if mk.any():
-            ps.append(binom.cdf(int(E[mk, c].sum()), int(mk.sum()), al))
-    return max(ps) if ok.any() else 1.0
+    ok, ch = claims(S, lam)
+    if not ok.any():
+        return 1.0
+    return max(lvl_p(E, ok & (ch == c), c, al) for c in range(S.shape[1]))
 
 
 def pstrict(S, E, lam, al):
@@ -80,11 +104,7 @@ def pstrict(S, E, lam, al):
     if not ok.any():
         return 1.0
     e = E[np.arange(len(E)), np.maximum(ch, 0)]
-    ps = [binom.cdf(int(e[ok].sum()), int(ok.sum()), al)]
-    mk = ok & (ch == 0)
-    if mk.any():
-        ps.append(binom.cdf(int(E[mk, 0].sum()), int(mk.sum()), al))
-    return max(ps)
+    return max(float(binom.cdf(int(e[ok].sum()), int(ok.sum()), al)), lvl_p(E, ok & (ch == 0), 0, al))
 
 
 def ltt_p(Sc, Ec, Sf, Ef, al, delta, pf):
@@ -106,10 +126,9 @@ def p2(S, E, ls, lw, al):
     if not ok.any():
         return 1.0
     e = E[np.arange(len(E)), np.maximum(ch, 0)]
-    ps = [binom.cdf(int(e[ok].sum()), int(ok.sum()), al)]
-    mk = S[:, 0] <= ls
-    if mk.any():
-        ps.append(binom.cdf(int(E[mk, 0].sum()), int(mk.sum()), al))
+    ps = [float(binom.cdf(int(e[ok].sum()), int(ok.sum()), al))]
+    if ls > -np.inf:                   # strict claims are possible under this policy -> they must be certified too
+        ps.append(lvl_p(E, S[:, 0] <= ls, 0, al))
     return max(ps)
 
 
@@ -178,14 +197,86 @@ def graded_scores(Pr, y):
 
 
 def row(ok, ch, err, al, tie=None):
-    size = np.where(~ok, 3, np.where(ch == 2, 2, 1)); st = ok & (ch == 0); k = int(ok.sum()); e = int(err[ok].sum()) if k else 0
+    """claim types ch: 0 strict {k}; 1 tie {T}; 2 weak {k,T}; 3 'not a tie' {A,B} (only from generic set predictors)"""
+    size = np.where(~ok, 3, np.where(ch >= 2, 2, 1)); st = ok & (ch == 0); k = int(ok.sum()); e = int(err[ok].sum()) if k else 0
     risk = e / k if k else np.nan
     d = dict(acceptance=float(ok.mean()), set_size=float(size.mean()), decisive=float(st.mean()), strict_errors=int(err[st].sum()),
              strict_claims=int(st.sum()), accepted=k, errors=e, risk=risk, violated=(float(risk > al) if k else np.nan),
-             significant=(float(binom.sf(e - 1, k, al) < .05) if k else np.nan), empty=float(not ok.any()))
+             significant=(float(binom.sf(e - 1, k, al) < .05) if k else np.nan), empty=float(not ok.any()),
+             tie_claims=float((ok & (ch == 1)).mean()), weak_claims=float((ok & (ch == 2)).mean()),
+             nondirectional=float((ok & (ch == 3)).mean()))
     if tie is not None:                     # human ties among the accepted pairs / among the strict claims (Proposition 1)
         d.update(accepted_ties=int((ok & tie).sum()), strict_on_ties=int((st & tie).sum()))
     return d
+
+
+def make_sets(Pr, q, kind):
+    """generic label sets over {0: A, 1: B, 2: T}: LAC {y: p(y) >= 1 - q}; APS = labels by decreasing p until mass >= q"""
+    if kind == "lac":
+        return Pr >= 1 - q
+    o = np.argsort(-Pr, axis=1, kind="stable"); cs = np.take_along_axis(Pr, o, 1).cumsum(1)
+    k = (cs < q).sum(1) + 1; S = np.zeros_like(Pr, bool)
+    for j in range(3):
+        S[np.arange(len(Pr)), o[:, j]] = j < k
+    return S
+
+
+def set_claims(Pr, y, q, kind):
+    """(accepted, claim type, error) for row(): a set of size 1 or 2 is a claim, a full or empty set an abstention;
+    q = -inf (nothing certified) abstains everywhere"""
+    S = make_sets(Pr, q, kind) if q > -np.inf else np.ones_like(Pr, bool); size = S.sum(1); ok = (size > 0) & (size < 3)
+    ch = np.where(size == 2, np.where(S[:, 2], 2, 3), np.where(S[:, 2] & (size == 1), 1, 0))
+    return ok, ch, (~S[np.arange(len(y)), y]).astype(float)
+
+
+def ltt_sets(Pr, y, cal, fit, al, delta, kind, grid=GRID):
+    """the same fixed-sequence LTT as ltt() over the set parameter q, walking from conservative to informative policies:
+    here a larger q means larger sets (more abstention), so the sequence runs from the fit-chosen start towards smaller q"""
+    def pv(idx, q):
+        ok, _, e = set_claims(Pr[idx], y[idx], q, kind); n = int(ok.sum())
+        return float(binom.cdf(int(e[ok].sum()), n, al)) if n else 1.0
+    grid = grid[::-1]
+    s0 = int(np.argmin([pv(fit, q) for q in grid])); best = -np.inf
+    for q in grid[s0:]:
+        if pv(cal, q) <= delta:
+            best = q
+        else:
+            break
+    return best
+
+
+def persona3(store, ds, j, ids):
+    """persona prompts' A/B/T probabilities, aligned to cand 0 / cand 1 / tie, averaged over personas and both orders"""
+    R = store.load(ds, j, conds=set(SA)); out = {}
+    for i in ids:
+        r = R.get(i, {})
+        if all((c, o) in r for c in SA for o in ("AB", "BA")):
+            q = np.mean([[(r[(c, "AB")]["A"] + r[(c, "BA")]["B"]) / 2, (r[(c, "AB")]["B"] + r[(c, "BA")]["A"]) / 2,
+                          (r[(c, "AB")]["T"] + r[(c, "BA")]["T"]) / 2] for c in SA], 0)
+            out[i] = q / q.sum()
+    return out
+
+
+def conformal_sets(Pr, y, cal, te, al, score):
+    """split-conformal sets over the classes {0: A, 1: B, 2: T} (LAC or non-randomised APS) -> (accepted, claim type,
+    error) on the test split in the format of row(): accepted = not the full set; error = label not in the set"""
+    n = len(cal); q_level = min(1.0, np.ceil((n + 1) * (1 - al)) / n)
+    if score == "lac":
+        qhat = np.quantile(1 - Pr[cal, y[cal]], q_level, method="higher")
+        S = (1 - Pr[te]) <= qhat
+    else:
+        o = np.argsort(-Pr, axis=1, kind="stable"); cs = np.take_along_axis(Pr, o, 1).cumsum(1)
+        rank = np.argsort(o, axis=1)                                  # position of each class in the sorted order
+        sc = cs[np.arange(len(Pr)), rank[np.arange(len(Pr)), y]]       # mass up to and including the true class
+        qhat = np.quantile(sc[cal], q_level, method="higher")
+        k = (cs[te] < qhat).sum(1) + 1                                 # smallest prefix whose mass reaches qhat
+        S = np.zeros((len(te), 3), bool)
+        for j in range(3):
+            S[np.arange(len(te)), o[te, j]] = j < k
+    size = S.sum(1); ok = size < 3
+    ch = np.where(size == 2, np.where(S[:, 2], 2, 3), np.where(S[:, 2] & (size == 1), 1, 0))
+    err = (~S[np.arange(len(te)), y[te]]).astype(float)
+    return ok, ch, err
 
 
 def run(cfg, store, log):
@@ -203,7 +294,7 @@ def run(cfg, store, log):
             grp = cfg.get("group")
             if grp:
                 ug, gi = np.unique(np.array([str(I[i]["meta"][grp.split(".", 1)[1]]) for i in ids]), return_inverse=True)
-            parts_full, parts_one, P_, Q_, F1_, Q1_, C_ = [], [], [], [], [], [], []
+            parts_full, parts_one, parts_bin, P_, Q_, F1_, Q1_, C_ = [], [], [], [], [], [], [], []
             for m in members:
                 Sg = SG[m]
                 f1 = np.array([Sg[i][0] for i in ids]); f2 = np.array([Sg[i][1] for i in ids])
@@ -211,19 +302,24 @@ def run(cfg, store, log):
                 p = (f1 + f2) / 2; Q = (q1 + q2) / 2; cons = ((f1 > .5) == (f2 > .5)).astype(float)
                 parts_full.append(np.c_[np.log(Q + 1e-9), H(p), np.abs(p - .5), cons])
                 parts_one.append(np.c_[np.log(q1 + 1e-9), H(f1), np.abs(f1 - .5)])
+                parts_bin.append(np.c_[H(p), np.abs(p - .5), cons, p])
                 P_.append(p); Q_.append(Q); F1_.append(f1); Q1_.append(q1); C_.append(cons)
             if len(members) == 1:
-                F_full, F_one = parts_full[0], parts_one[0]
+                F_full, F_one, F_bin = parts_full[0], parts_one[0], parts_bin[0]
             else:
-                F_full, F_one = np.concatenate(parts_full, 1), np.concatenate(parts_one, 1)
+                F_full, F_one, F_bin = np.concatenate(parts_full, 1), np.concatenate(parts_one, 1), np.concatenate(parts_bin, 1)
                 p, Q, f1, q1 = np.mean(P_, 0), np.mean(Q_, 0), np.mean(F1_, 0), np.mean(Q1_, 0)
             PWF = None
-            if {"G2pw", "G5pw", "P4pw"} & set(methods):
+            if {"G2pw", "G5pw", "P4pw", "PWT", "PWL"} & set(methods):
                 pws = [pointwise_feats(store, ds, m, ids) for m in members]; pws = [x for x in pws if x is not None]
                 PWF = np.mean(pws, 0) if pws else None
             fc = np.where(p > .5, 0, 1); eb = (fc != y).astype(float); et = np.where(y == 2, 1.0, eb)
             fc1 = np.where(f1 > .5, 0, 1); et1 = np.where(y == 2, 1.0, (fc1 != y).astype(float))
-            nsa = 0
+            nsa = 0; QSA = None
+            if "T3" in methods and len(members) == 1:
+                QS = persona3(store, ds, j, ids)
+                if sum(i in QS for i in ids) >= .95 * n:
+                    QSA = np.array([QS.get(i, np.full(3, 1 / 3)) for i in ids])
             if {"T1", "T2"} & set(methods) and len(members) == 1:
                 PS = persona(store, ds, j, ids); has = np.array([i in PS for i in ids]); nsa = int(has.sum())
                 if nsa >= 200:
@@ -247,6 +343,10 @@ def run(cfg, store, log):
                 if need1:
                     Pr1 = head(F_one, y, fit); S31, E31 = graded_scores(Pr1, y)
                 S0, E0 = graded_scores(Q, y)
+                if "G2b" in methods:
+                    Prb = head(F_bin, y, fit); S3b, E3b = graded_scores(Prb, y)
+                if QSA is not None:
+                    S3t, E3t = graded_scores(QSA, y)
                 if PWF is not None:
                     Prp = head(np.c_[F_full, PWF], y, fit); S3p, E3p = graded_scores(Prp, y)
                 u, u1 = H(p), H(f1); zeros = np.zeros(len(te), int)
@@ -264,6 +364,24 @@ def run(cfg, store, log):
                     if "P4" in methods:
                         lam = ltt(S3[cal][:, [0]], E3[cal][:, [0]], al, delta, S3[fit][:, [0]], E3[fit][:, [0]])
                         res["P4"] = row(S3[te, 0] <= lam, zeros, E3[te, 0], al, Ty[te])
+                    for key, score in (("CPL", "lac"), ("CPA", "aps")):
+                        if key in methods:
+                            res[key] = row(*conformal_sets(Prf, y, cal, te, al, score), al, Ty[te])
+                    if PWF is not None and {"PWT", "PWL"} & set(methods):
+                        dE = PWF[:, 0] - PWF[:, 1]; pw_fc = np.where(dE > 0, 0, 1)      # ties of the means -> B (rare)
+                        if "PWT" in methods:
+                            if al == AL[0]:
+                                mg2 = np.abs(dE); oc2 = cal[np.argsort(mg2[cal], kind="stable")]; mc2 = mg2[oc2]
+                                ht2 = np.cumsum(y[oc2] == 2); hs2 = np.cumsum(pw_fc[oc2] == y[oc2]); tot2 = hs2[-1]
+                                last2 = np.r_[mc2[1:] != mc2[:-1], True]; acc2 = (ht2 + tot2 - hs2)[last2]
+                                eps2 = mc2[last2][int(np.argmax(acc2))] if acc2.max() > tot2 else -1.0
+                                pwt_ch = np.where(mg2[te] <= eps2, 1, 0)
+                                pwt_err = np.where(pwt_ch == 1, y[te] != 2, pw_fc[te] != y[te]).astype(float)
+                            res["PWT"] = row(np.ones(len(te), bool), pwt_ch, pwt_err, al, Ty[te])
+                        if "PWL" in methods:
+                            sp = 1 - np.minimum(np.abs(dE), 8) / 8; ep = np.where(y == 2, 1.0, (pw_fc != y).astype(float))
+                            lam = ltt(sp[cal][:, None], ep[cal][:, None], al, delta, sp[fit][:, None], ep[fit][:, None])
+                            res["PWL"] = row(sp[te] <= lam, zeros, ep[te], al, Ty[te])
                     if "TC" in methods:     # tie calibration (Deutsch et al., EMNLP 2023): 'tie' if |p - .5| <= eps, else the
                         if al == AL[0]:     # forced-choice winner; eps maximises 3-way accuracy on the calibration split.
                             mg = np.abs(p - .5); oc = cal[np.argsort(mg[cal], kind="stable")]; mc = mg[oc]   # every pair gets a
@@ -287,6 +405,19 @@ def run(cfg, store, log):
                         if key in methods:
                             ok, ch = claims(S[te], ltt(S[cal], E[cal], al, delta, S[fit], E[fit]))
                             res[key] = row(ok, ch, E[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                    for key, S, E in (("G2b", S3b if "G2b" in methods else None, E3b if "G2b" in methods else None),
+                                      ("T3", S3t if QSA is not None else None, E3t if QSA is not None else None)):
+                        if key in methods and S is not None:
+                            ok, ch = claims(S[te], ltt(S[cal], E[cal], al, delta, S[fit], E[fit]))
+                            res[key] = row(ok, ch, E[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                    if "G2s" in methods:            # singletons only: drop the weak level
+                        S2, E2 = S3[:, :2], E3[:, :2]
+                        ok, ch = claims(S2[te], ltt(S2[cal], E2[cal], al, delta, S2[fit], E2[fit]))
+                        res["G2s"] = row(ok, ch, E2[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                    for key, kind in (("SL", "lac"), ("SA", "aps")):
+                        if key in methods:
+                            q = ltt_sets(Prf, y, cal, fit, al, delta, kind)
+                            res[key] = row(*set_claims(Prf[te], y[te], q, kind), al, Ty[te])
                     if "G3" in methods:
                         ok, ch = claims(S3[te], ltt_p(S3[cal], E3[cal], S3[fit], E3[fit], al, delta, pjoint))
                         res["G3"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
@@ -331,6 +462,17 @@ def summarize(rows):
                         guarantee_success=(1 - np.mean(nn("violated")) if risk else np.nan),
                         significant_violation=(np.mean(nn("significant")) if risk else np.nan),
                         empty_splits=np.mean([r["empty"] for r in R]),
+                        # review W2/W3: answered splits, pooled ratio (SCOPE's ratio-of-expectations object) and event
+                        # rates over ALL splits, where a split without any answer counts as no violation
+                        tie_claim_share=np.mean([r.get("tie_claims", np.nan) for r in R]),
+                        weak_share=np.mean([r.get("weak_claims", np.nan) for r in R]),
+                        nondirectional_share=np.mean([r.get("nondirectional", np.nan) for r in R]),
+                        splits_answered=sum(r["accepted"] > 0 for r in R),
+                        accepted_median=float(np.median([r["accepted"] for r in R])),
+                        pooled_risk=(sum(r["errors"] for r in R) / sum(r["accepted"] for r in R) if sum(r["accepted"] for r in R) else np.nan),
+                        violation_all=float(np.mean([r["violated"] == 1.0 for r in R])),
+                        guarantee_success_all=float(1 - np.mean([r["violated"] == 1.0 for r in R])),
+                        significant_all=float(np.mean([r["significant"] == 1.0 for r in R])),
                         tie_share_accepted=(sum(r["accepted_ties"] for r in R) / max(sum(r["accepted"] for r in R), 1)
                                             if all(r.get("accepted_ties") is not None for r in R) else np.nan),
                         tie_share_strict=(sum(r["strict_on_ties"] for r in R) / sc

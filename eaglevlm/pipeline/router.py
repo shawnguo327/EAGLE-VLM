@@ -29,11 +29,13 @@ def pj(S, E, lam, al, joint):
         return 1.0
     if not joint:
         return binom.cdf(int(E[np.arange(len(E)), np.maximum(ch, 0)][ok].sum()), int(ok.sum()), al)
+    # every level the policy can issue (finite score somewhere) must be certified; an unobserved one gets p = 1 (review W4)
     ps = [0.0]
     for c in range(S.shape[1]):
-        mk = ok & (ch == c)
-        if mk.any():
-            ps.append(binom.cdf(int(E[mk, c].sum()), int(mk.sum()), al))
+        if not np.isfinite(S[:, c]).any():
+            continue                    # level switched off by construction (e.g. no routed pairs / degenerate estimate)
+        mk = ok & (ch == c); n = int(mk.sum())
+        ps.append(float(binom.cdf(int(E[mk, c].sum()), n, al)) if n else 1.0)
     return max(ps)
 
 
