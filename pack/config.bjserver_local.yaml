@@ -393,3 +393,15 @@ phases:   # priority = order on the start command line
     conds: bin,tri
     datasets: [mllm_judge_sp]
     models: [r1reward, llavacritic7b]
+  # --- 2026-11-05 night: tie-prompt paraphrases on the FULL GenAI-Arena for the two judges that only had the 1,500 subset
+  B3_para_full:
+    type: judge
+    conds: tri_p1,tri_p2,tri_p3
+    datasets: [genai_arena, genai_arena_rest]
+    models: [qwen3vl8b, internvl35_8b]
+  # --- 2026-11-06: full Polaris test set (12,662 pairs) and all AGIQA-3K prompts (13,344 pairs), router datasets 3-4
+  A1_abs_full:
+    type: judge
+    conds: bin,tri,score
+    datasets: [polaris, agiqa3k]
+    models: [qwen3vl8b, internvl35_8b]

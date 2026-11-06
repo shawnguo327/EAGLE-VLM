@@ -8,13 +8,13 @@ label = higher human score better, equal scores = tie; A/B orientation by a hash
 meta.scores = the two human scores, meta.scale = [lo, hi] of the score scale (router level claims use a quarter of the range:
 'no clear winner' = |gap| <= (hi-lo)/4, 'both unacceptable' = both <= lo + (hi-lo)/4 - the same rule as |gap| <= 1, both <= 2 on
 1-5 scales).
-usage: python make_absdata.py [n_prompts_agiqa=100] [max_pairs_polaris=4000]"""
+usage: python make_absdata.py [n_prompts_agiqa=all] [max_pairs_polaris=all]  (ids are stable across sizes)"""
 import collections, csv, glob, hashlib, io, itertools, json, os, random, sys, zipfile, zlib
 import pyarrow.parquet as pq
 from PIL import Image
 RAW = "/media/vipuser/Data1/raw"; LOC = "/media/vipuser/Data/eaglevlm/judgebench_local"
-NP = int(sys.argv[1]) if len(sys.argv) > 1 else 100
-NPOL = int(sys.argv[2]) if len(sys.argv) > 2 else 4000
+NP = int(sys.argv[1]) if len(sys.argv) > 1 else 100000     # default: all prompts
+NPOL = int(sys.argv[2]) if len(sys.argv) > 2 else 10**9     # default: all pairs
 
 
 def orient(iid, a, b):
@@ -38,11 +38,13 @@ R = list(csv.DictReader(open(f"{RAW}/IQA/meta/AGIQA3K_data.csv")))
 groups = collections.defaultdict(list)
 for r in R:
     groups[r["prompt"]].append(r)
-prompts = sorted(groups); pick = random.Random(0).sample(prompts, min(NP, len(prompts)))
+prompts = sorted(groups); pidx = {p: k for k, p in enumerate(prompts)}       # stable id = index in the sorted prompt list
+pick = sorted(random.Random(0).sample(prompts, min(NP, len(prompts))), key=pidx.get)
 zf = zipfile.ZipFile(f"{RAW}/IQA/AGIQA-3K.zip"); names = {os.path.basename(n): n for n in zf.namelist()}
 CRIT = "Prefer the image that better follows the prompt and has better overall quality."
 out = []
-for k, p in enumerate(pick):
+for p in pick:
+    k = pidx[p]
     rows = [r for r in groups[p] if r["name"] in names]
     for r in rows:
         dst = f"{LOC}/images/agiqa3k/{r['name']}"

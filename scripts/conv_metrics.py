@@ -11,6 +11,8 @@ Per set x judge (order-averaged forced choice p = P(cand 0 better), tie prompt Q
   AURC decided / all      area under the selective risk-coverage curve (confidence = |p - .5|), decided pairs only vs all
                           pairs with ties = errors (lower is better; the published setting vs deployment with ties)
   sel. acc @50% dec / all accuracy of the 50% most confident pairs, decided only vs all pairs
+  ECE decided / all       expected calibration error of the forced-choice confidence max(p, 1-p) (SCOPE / ToE Table 1)
+  err AUPRC / AUROC all   BPE as an error detector; 'all' counts a human tie as an error of any forced choice
 usage (judgebench dir): python conv_metrics.py --out paper_tables/conv_metrics.md"""
 import argparse, os, sys
 import numpy as np
@@ -43,6 +45,24 @@ def aurc(conf, err):
     o = np.argsort(-conf, kind="stable"); e = err[o]; return float(np.mean(np.cumsum(e) / np.arange(1, len(e) + 1)))
 
 
+def ece(conf, correct, bins=10):
+    """expected calibration error of the forced-choice confidence max(p, 1-p) (10 equal-width bins on [.5, 1])"""
+    e = np.linspace(.5, 1, bins + 1); out = 0.0
+    for lo, hi in zip(e[:-1], e[1:]):
+        m = (conf >= lo) & ((conf < hi) | (hi == 1))
+        if m.any():
+            out += m.mean() * abs(conf[m].mean() - correct[m].mean())
+    return out
+
+
+def auprc(score, pos):
+    """average precision of `score` for detecting the positive class (errors)"""
+    o = np.argsort(-score, kind="stable"); y = pos[o].astype(float)
+    if y.sum() == 0:
+        return np.nan
+    prec = np.cumsum(y) / np.arange(1, len(y) + 1); return float((prec * y).sum() / y.sum())
+
+
 def selacc(conf, err, cov=.5):
     o = np.argsort(-conf, kind="stable")[: max(1, int(cov * len(conf)))]; return 1 - err[o].mean()
 
@@ -51,7 +71,8 @@ f = lambda v: "-" if v != v else f"{v:.3f}"
 L = ["# Conventional judge metrics with and without human ties", "",
      "Order-averaged forced choice / tie prompt.  AURC: lower is better.  sel.acc@50%: accuracy of the most confident half.", "",
      "| set | judge | n | human tie | acc (ties dropped) | acc (ties = wrong) | acc (half credit) | acc 3-way | T share | tie F1 | "
-     "err AUROC (decided) | AURC decided | AURC all | sel.acc@50% decided | sel.acc@50% all |", "|" + "---|" * 15]
+     "err AUROC (decided) | AURC decided | AURC all | sel.acc@50% decided | sel.acc@50% all | ECE decided | ECE all | err AUPRC decided | "
+     "err AUROC all | err AUPRC all |", "|" + "---|" * 20]
 for spec in a.sets.split(","):
     ds, sub = (spec.split("/") + [None])[:2]
     I = eval_items(ds, items(ds, rest=ds not in ("mllm_judge_sp", "genaibench")))
@@ -69,6 +90,7 @@ for spec in a.sets.split(","):
         L.append(f"| {spec} | {j} | {len(ids)} | {t.mean():.2f} | {f(1 - err_d.mean())} | {f(1 - err_all.mean())} | "
                  f"{f(np.where(t, .5, 1 - err_all).mean())} | {f((am == y).mean())} | {(am == 2).mean():.3f} | {f(f1)} | "
                  f"{f(auroc(H(p[d]), err_d) if 0 < err_d.mean() < 1 else np.nan)} | {f(aurc(conf[d], err_d))} | {f(aurc(conf, err_all))} | "
-                 f"{f(selacc(conf[d], err_d))} | {f(selacc(conf, err_all))} |")
+                 f"{f(selacc(conf[d], err_d))} | {f(selacc(conf, err_all))} | {f(ece(.5 + conf[d], 1 - err_d))} | {f(ece(.5 + conf, 1 - err_all))} | "
+                 f"{f(auprc(H(p[d]), err_d))} | {f(auroc(H(p), err_all))} | {f(auprc(H(p), err_all))} |")
         print(L[-1], flush=True)
 open(a.out, "w").write("\n".join(L) + "\n")
