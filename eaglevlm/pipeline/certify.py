@@ -11,6 +11,9 @@ Methods:
   G3  graded, every claim level <= alpha (intersection-union)
   G4  graded, overall AND strict-claim risk <= alpha, one threshold
   G5  graded, overall AND strict-claim risk <= alpha, separate strict / tie-weak thresholds (Bonferroni over 10 strict values)
+  G2pw / G5pw  as G2 / G5 with the judge's pointwise (single-candidate 1-9 score) features added to the calibrator
+  judge "jury:<m1>+<m2>+...": the calibrator sees the features of all member judges (pairs judged by every member);
+  P-type baselines use the members' averaged probabilities; T methods are not defined for a jury
 Per split and alpha one CSV row: acceptance, mean set size, decisive share, strict errors / strict claims, accepted,
 errors, risk, violated (risk > alpha), significant (one-sided binomial p < .05 that risk > alpha), empty."""
 import collections
@@ -145,6 +148,16 @@ def persona(store, ds, j, ids):
     return out
 
 
+def pointwise_feats(store, ds, j, ids):
+    """[E_A, E_B, Var_A, Var_B, P(s<=3)_A, P(s<=3)_B, min E, max E, |E_A - E_B|] from the 1-9 score prompt, or None"""
+    from eaglevlm.pipeline.router import pointwise
+    M = pointwise(store, ds, j, ids)
+    if M is None:
+        return None
+    return np.c_[M[:, 0], M[:, 3], M[:, 1], M[:, 4], M[:, 2], M[:, 5], np.minimum(M[:, 0], M[:, 3]), np.maximum(M[:, 0], M[:, 3]),
+                 np.abs(M[:, 0] - M[:, 3])]
+
+
 def head(F, y, fit):
     m = LogisticRegression(max_iter=5000).fit(F[fit], y[fit]); Pr = np.zeros((len(y), 3)); Pr[:, m.classes_] = m.predict_proba(F)
     return Pr
@@ -170,19 +183,34 @@ def run(cfg, store, log):
     for spec in cfg["datasets"]:
         ds, I = __import__("eaglevlm.pipeline.io", fromlist=["dataset_items"]).dataset_items(store, spec)
         for j in cfg["judges"]:
-            Sg = signals(store, ds, j, I); ids = sorted(Sg)
+            members = j.split(":", 1)[1].split("+") if j.startswith("jury:") else [j]
+            SG = {m: signals(store, ds, m, I) for m in members}
+            ids = sorted(set.intersection(*[set(v) for v in SG.values()]))
             if len(ids) < 200 or len(ids) < cfg.get("min_coverage", .95) * len(I):
                 log(f"skip {spec} {j}: {len(ids)} / {len(I)} items with both prompts in both orders"); continue
             n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids])
-            f1 = np.array([Sg[i][0] for i in ids]); f2 = np.array([Sg[i][1] for i in ids])
-            q1 = np.array([Sg[i][2] for i in ids]); q2 = np.array([Sg[i][3] for i in ids])
-            p = (f1 + f2) / 2; Q = (q1 + q2) / 2; cons = ((f1 > .5) == (f2 > .5)).astype(float)
-            F_full = np.c_[np.log(Q + 1e-9), H(p), np.abs(p - .5), cons]
-            F_one = np.c_[np.log(q1 + 1e-9), H(f1), np.abs(f1 - .5)]
+            parts_full, parts_one, P_, Q_, F1_, Q1_, C_ = [], [], [], [], [], [], []
+            for m in members:
+                Sg = SG[m]
+                f1 = np.array([Sg[i][0] for i in ids]); f2 = np.array([Sg[i][1] for i in ids])
+                q1 = np.array([Sg[i][2] for i in ids]); q2 = np.array([Sg[i][3] for i in ids])
+                p = (f1 + f2) / 2; Q = (q1 + q2) / 2; cons = ((f1 > .5) == (f2 > .5)).astype(float)
+                parts_full.append(np.c_[np.log(Q + 1e-9), H(p), np.abs(p - .5), cons])
+                parts_one.append(np.c_[np.log(q1 + 1e-9), H(f1), np.abs(f1 - .5)])
+                P_.append(p); Q_.append(Q); F1_.append(f1); Q1_.append(q1); C_.append(cons)
+            if len(members) == 1:
+                F_full, F_one = parts_full[0], parts_one[0]
+            else:
+                F_full, F_one = np.concatenate(parts_full, 1), np.concatenate(parts_one, 1)
+                p, Q, f1, q1 = np.mean(P_, 0), np.mean(Q_, 0), np.mean(F1_, 0), np.mean(Q1_, 0)
+            PWF = None
+            if {"G2pw", "G5pw"} & set(methods):
+                pws = [pointwise_feats(store, ds, m, ids) for m in members]; pws = [x for x in pws if x is not None]
+                PWF = np.mean(pws, 0) if pws else None
             fc = np.where(p > .5, 0, 1); eb = (fc != y).astype(float); et = np.where(y == 2, 1.0, eb)
             fc1 = np.where(f1 > .5, 0, 1); et1 = np.where(y == 2, 1.0, (fc1 != y).astype(float))
             nsa = 0
-            if {"T1", "T2"} & set(methods):
+            if {"T1", "T2"} & set(methods) and len(members) == 1:
                 PS = persona(store, ds, j, ids); has = np.array([i in PS for i in ids]); nsa = int(has.sum())
                 if nsa >= 200:
                     ps = np.array([PS.get(i, .5) for i in ids]); sa_s = 1 - np.maximum(ps, 1 - ps)
@@ -200,6 +228,8 @@ def run(cfg, store, log):
                 if need1:
                     Pr1 = head(F_one, y, fit); S31, E31 = graded_scores(Pr1, y)
                 S0, E0 = graded_scores(Q, y)
+                if PWF is not None:
+                    Prp = head(np.c_[F_full, PWF], y, fit); S3p, E3p = graded_scores(Prp, y)
                 u, u1 = H(p), H(f1); zeros = np.zeros(len(te), int)
                 for al in AL:
                     res = {}
@@ -238,6 +268,12 @@ def run(cfg, store, log):
                     if "G5" in methods:
                         ls, lw = ltt_two(S3[cal], E3[cal], S3[fit], E3[fit], al, delta); ok, ch = claims2(S3[te], ls, lw)
                         res["G5"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al)
+                    if PWF is not None and "G2pw" in methods:
+                        ok, ch = claims(S3p[te], ltt(S3p[cal], E3p[cal], al, delta, S3p[fit], E3p[fit]))
+                        res["G2pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al)
+                    if PWF is not None and "G5pw" in methods:
+                        ls, lw = ltt_two(S3p[cal], E3p[cal], S3p[fit], E3p[fit], al, delta); ok, ch = claims2(S3p[te], ls, lw)
+                        res["G5pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al)
                     for mth, r in res.items():
                         out.append(dict(dataset=spec, judge=j, n=n, human_tie=float((y == 2).mean()),
                                         n_persona=(nsa if mth in ("T1", "T2") else None), method=mth, alpha=al, split=sp, **r))

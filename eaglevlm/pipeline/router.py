@@ -5,6 +5,7 @@ Level labels from human absolute references:
   imagerewarddb                human overall 1-7: |gap| <= 1, both <= 3
   datasets with meta.scale     a quarter of the score range (polaris 0-1, agiqa3k 0-5)
   genai_arena                  votes: no clear winner = tie or both-bad vote, both unacceptable = both-bad vote
+  others (no absolute scores)  no clear winner = human tie; 'both unacceptable' is never claimed
 Variants: G2 (no routing), control (routed, level claims with the routed base rate as estimated error - no pointwise),
 cells (fixed 3x3x2 map), logistic (per level claim), jury (pointwise ranks averaged over all judges with pointwise runs).
 Rules: overall risk <= alpha, or every claim level <= alpha (intersection-union).  One CSV row per split."""
@@ -67,7 +68,10 @@ def level_labels(ds, I, ids):
     if ds == "imagerewarddb":
         s = np.array([[c["overall"] for c in I[i]["meta"]["cand_info"]] for i in ids], float)
         return np.abs(s[:, 0] - s[:, 1]) <= 1, s.max(1) <= 3
-    v = np.array([I[i]["meta"]["vote_type"] for i in ids]); return np.isin(v, ["tievote", "bothbad_vote"]), v == "bothbad_vote"
+    if "vote_type" in I[ids[0]].get("meta", {}):
+        v = np.array([I[i]["meta"]["vote_type"] for i in ids]); return np.isin(v, ["tievote", "bothbad_vote"]), v == "bothbad_vote"
+    # no absolute reference: 'no clear winner' = human tie; 'both unacceptable' is never claimed
+    t = np.array([str(I[i]["label"]) == "tie" for i in ids]); return t, np.zeros(len(ids), bool)
 
 
 def pointwise(store, ds, j, ids):

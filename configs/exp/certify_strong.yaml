@@ -1,0 +1,16 @@
+# Can stronger signals make strict claims certifiable and lift coverage on hard datasets?
+#  - jury: one calibrator over the features of all six general VLM judges
+#  - pw:   the judge's own pointwise (1-9 single-candidate) scores added to the calibrator (datasets with pointwise runs)
+name: certify_strong
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b,
+         "jury:qwen3vl8b+internvl35_8b+qwen35_9b+qwen25vl7b+qwen3vl32b+internvl35_38b",
+         "jury:qwen3vl8b+internvl35_8b+qwen35_9b+qwen25vl7b+qwen3vl32b"]
+methods: [P1, P2, P4, G2, G2pw, G3, G5, G5pw]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+split: {fit: 0.25, cal: 0.25}
+n_splits: 100
+min_coverage: 0.95

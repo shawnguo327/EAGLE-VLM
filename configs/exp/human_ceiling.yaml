@@ -1,0 +1,9 @@
+# How often does one human annotator's claim disagree with the other annotators? (error floor for any judge)
+name: human_ceiling
+type: script
+include: ../paths.bjserver.yaml
+script: scripts/human_ceiling.py
+cwd: /media/shawn/C/papers/VLM/judgebench
+jobs:
+  - out: human_ceiling.md
+    args: []
