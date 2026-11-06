@@ -14,6 +14,11 @@ Output: <results>/<name>/<timestamp>/
     run.log
 and <results>/<name>/latest -> <timestamp>.  No model is run here: inputs are the saved judge outputs."""
 import argparse, concurrent.futures as cf, csv, datetime, gzip, importlib, json, os, platform, socket, subprocess, sys
+# Workers run as parallel processes; BLAS / OpenMP pools of the host's core count in every worker oversubscribe the machine
+# (load > cores next to the GPU judges) and make floating-point reduction order depend on the host.  Pin them (set before
+# numpy is imported; an explicit environment value wins).
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_v, "2")
 import yaml
 
 TYPES = {"certify": "eaglevlm.pipeline.certify", "router": "eaglevlm.pipeline.router", "conventional": "eaglevlm.pipeline.conventional",
@@ -73,7 +78,7 @@ def main():
     yaml.safe_dump(cfg, open(f"{out}/config.yaml", "w"), sort_keys=False, allow_unicode=True)
     commit, dirty = git_info()
     import numpy, scipy, sklearn
-    env = dict(git_commit=commit, git_dirty=dirty, python=platform.python_version(), numpy=numpy.__version__, scipy=scipy.__version__,
+    env = dict(git_commit=commit, git_dirty=dirty, blas_threads=os.environ.get("OMP_NUM_THREADS"), python=platform.python_version(), numpy=numpy.__version__, scipy=scipy.__version__,
                sklearn=sklearn.__version__, host=socket.gethostname(), command=" ".join(sys.argv), start=datetime.datetime.now().isoformat())
     log = open(f"{out}/run.log", "w")
     if cfg["type"] == "script":                       # wrapped analysis script (section-2 mechanism analyses etc.)
