@@ -1,0 +1,17 @@
+# Review W13 / improvement plan experiment 5: ablate_source (factorial S0 rows, p(T) ablation, selection) on the
+# IMAGE-REMOVED prompts (bin_blind / tri_blind) for the judges with blind runs; no pointwise rows.  Same splits as
+# ablate_source; compare tie AUROC, excluded labels and automation with and without the image.
+name: ablate_blind
+type: ablate
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+bootstrap: 2000
+min_coverage: 0.95
+cond_map: {bin: bin_blind, tri: tri_blind}
+pointwise: false

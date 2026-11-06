@@ -44,6 +44,8 @@ a pair drawn uniformly from a uniformly drawn new source (summary column risk_so
 Optional cfg 'unit: source_pairs' (review improvement plan, experiment 1 diagnostic): split by source as above, but
 calibrate on ALL pairs of the calibration sources with the pair-level binomial - the protocol 'group split + pair binomial'
 that keeps the dependent pairs as if independent (no valid guarantee; shows whether changing the split alone suffices).
+Optional cfg 'cond_map' (e.g. {bin: bin_blind, tri: tri_blind}): read the pairwise signals from other prompt conditions
+(review W13: the same certification on the image-removed prompts; pointwise methods then need cfg 'pointwise: false').
 Optional cfg 'group: meta.<key>' (e.g. meta.question_index for Best-of-N candidate pairs): the fit / calibration / test
 split is drawn over groups, so all pairs of a group fall in the same part; without it the split is over pairs, as in the
 original scripts.
@@ -182,13 +184,15 @@ def ltt_two(Sc, Ec, Sf, Ef, al, delta):
 
 
 # ---------------- signals
-def signals(store, ds, j, I):
-    """per id: forced-choice P(cand 0 better) per order, tie-prompt probs per order (aligned to cand 0 / cand 1 / T)"""
-    R = store.load(ds, j, conds={"bin", "tri"}); out = {}
+def signals(store, ds, j, I, cmap=None):
+    """per id: forced-choice P(cand 0 better) per order, tie-prompt probs per order (aligned to cand 0 / cand 1 / T).
+    cmap: optional condition renaming, e.g. {bin: bin_blind, tri: tri_blind} for the image-removed prompts (review W13)"""
+    cb, ct = (cmap or {}).get("bin", "bin"), (cmap or {}).get("tri", "tri")
+    R = store.load(ds, j, conds={cb, ct}); out = {}
     for i, r in R.items():
-        if i not in I or not all((c, o) in r for c in ("bin", "tri") for o in ("AB", "BA")):
+        if i not in I or not all((c, o) in r for c in (cb, ct) for o in ("AB", "BA")):
             continue
-        b1, b2, t1, t2 = r[("bin", "AB")], r[("bin", "BA")], r[("tri", "AB")], r[("tri", "BA")]
+        b1, b2, t1, t2 = r[(cb, "AB")], r[(cb, "BA")], r[(ct, "AB")], r[(ct, "BA")]
         f1 = b1["A"] / (b1["A"] + b1["B"]); f2 = b2["B"] / (b2["A"] + b2["B"])
         q1 = np.array([t1["A"], t1["B"], t1["T"]]); q2 = np.array([t2["B"], t2["A"], t2["T"]])
         out[i] = (f1, f2, q1 / q1.sum(), q2 / q2.sum())
@@ -333,7 +337,7 @@ def run(cfg, store, log):
         ds, I = __import__("eaglevlm.pipeline.io", fromlist=["dataset_items"]).dataset_items(store, spec)
         for j in cfg["judges"]:
             members = j.split(":", 1)[1].split("+") if j.startswith("jury:") else [j]
-            SG = {m: signals(store, ds, m, I) for m in members}
+            SG = {m: signals(store, ds, m, I, cfg.get("cond_map")) for m in members}
             ids = sorted(set.intersection(*[set(v) for v in SG.values()]))
             if len(ids) < 200 or len(ids) < cfg.get("min_coverage", .95) * len(I):
                 log(f"skip {spec} {j}: {len(ids)} / {len(I)} items with both prompts in both orders"); continue
@@ -361,7 +365,7 @@ def run(cfg, store, log):
                 F_full, F_one, F_bin = np.concatenate(parts_full, 1), np.concatenate(parts_one, 1), np.concatenate(parts_bin, 1)
                 p, Q, f1, q1 = np.mean(P_, 0), np.mean(Q_, 0), np.mean(F1_, 0), np.mean(Q1_, 0)
             PWF = None
-            if {"G2pw", "G5pw", "P4pw", "PWT", "PWL"} & set(methods):
+            if {"G2pw", "G5pw", "P4pw", "PWT", "PWL"} & set(methods) and cfg.get("pointwise", True):
                 pws = [pointwise_feats(store, ds, m, ids) for m in members]; pws = [x for x in pws if x is not None]
                 PWF = np.nanmean(pws, 0) if pws else None     # may hold NaN (missing score): imputed per split from fit rows
             fc = np.where(p > .5, 0, 1); eb = (fc != y).astype(float); et = np.where(y == 2, 1.0, eb)

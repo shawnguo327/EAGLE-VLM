@@ -44,6 +44,7 @@ Experiment 7 - two-candidate selection with escalation: the policy picks one can
   U0 (everything to the human) automates nothing.  Primary endpoint: automation at certified selection risk; contrasts
   U2 - U1, U2 - U1c, U2 - U1t, U3 - U2, U2 - U2i, U1 - U1s.  Also reported: automation among human ties (auto_on_ties)
   and the selection regret over all test pairs with escalated pairs resolved by the human reference (regret).
+Optional cfg 'cond_map' / 'pointwise: false' as in certify (image-removed signals, review W13).
 Rows: per split x alpha one row per method (certify.row fields + excluded, tie_auroc, logloss, auto_on_ties, regret; on
 split 0 a 95% source-bootstrap interval of the source-weighted test risk) and one row per contrast 'D:<a>-<b>' with the
 source-weighted test difference (per-source mean, then mean over the test sources) in acceptance and excluded labels; on
@@ -116,7 +117,7 @@ def run(cfg, store, log):
     for spec in cfg["datasets"]:
         ds, I = dataset_items(store, spec)
         for j in cfg["judges"]:
-            Sg = signals(store, ds, j, I); ids = sorted(Sg)
+            Sg = signals(store, ds, j, I, cfg.get("cond_map")); ids = sorted(Sg)
             if len(ids) < 200 or len(ids) < cfg.get("min_coverage", .95) * len(I):
                 log(f"skip {spec} {j}: {len(ids)} / {len(I)} items with both prompts in both orders"); continue
             n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids]); Ty = y == 2
@@ -128,7 +129,7 @@ def run(cfg, store, log):
             F_bin = np.c_[H(p), np.abs(p - .5), cons, p]
             cc = (q1[:, 0] / (q1[:, 0] + q1[:, 1]) + q2[:, 0] / (q2[:, 0] + q2[:, 1])) / 2
             F_b1 = np.c_[F_bin, cc, np.abs(cc - .5)]; lpT = np.log(Q[:, 2] + 1e-9)
-            PWF = pointwise_feats(store, ds, j, ids)
+            PWF = pointwise_feats(store, ds, j, ids) if cfg.get("pointwise", True) else None
             fc = np.where(p > .5, 0, 1); mg = np.abs(p - .5)
             e_sel1 = (y == 1 - fc).astype(float); e_str1 = np.where(Ty, 1.0, (fc != y).astype(float))
             rng = np.random.default_rng(cfg.get("seed", 0))            # the split sequence of certify

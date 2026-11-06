@@ -1,0 +1,17 @@
+# Review W13 / improvement plan experiment 5 (visual dependence): the same source-level certification as certify_source
+# on the IMAGE-REMOVED forced-choice and tie prompts (conditions bin_blind / tri_blind: the question and the two answers,
+# no image).  Compare with certify_source (same seed -> the same splits) for the judges with blind runs.
+name: certify_blind
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
+methods: [P1, P2, P4, TC, G2, G2s, G2b, SA, G5]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+min_coverage: 0.95
+cond_map: {bin: bin_blind, tri: tri_blind}
+pointwise: false
