@@ -5,12 +5,15 @@ judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35
 general_judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b]
 judge_names: {qwen3vl8b: Qwen3-VL-8B, internvl35_8b: InternVL3.5-8B, qwen35_9b: Qwen3.5-9B, qwen25vl7b: Qwen2.5-VL-7B,
               qwen3vl32b: Qwen3-VL-32B, internvl35_38b: InternVL3.5-38B, r1reward: R1-Reward*, llavacritic7b: LLaVA-Critic-7B*}
-dataset_order: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k, polaris, agiqa3k]
-router_datasets: [mllm_judge_sp, genaibench, imagerewarddb, genai_arena/generation, genai_arena/edition, polaris, agiqa3k, mllm_judge, pickapic_u]
+dataset_order: [mllm_judge, mllm_judge_sp, genaibench, evalmuse, imagenhub/t2i, genai_arena/generation, genai_arena/edition, imagenhub/edit, pickapic_u, imagerewarddb, mtbench_human, arena55k, polaris, agiqa3k]
+router_datasets: [mllm_judge_sp, genaibench, evalmuse, imagenhub/t2i, imagenhub/edit, imagerewarddb, genai_arena/generation, genai_arena/edition, polaris, agiqa3k, mllm_judge, pickapic_u]
 dataset_names:
   mllm_judge: MLLM-as-a-Judge (pairs)
   mllm_judge_sp: MLLM-as-a-Judge (score pairs)
   genaibench: GenAI-Bench
+  evalmuse: EvalMuse-40K
+  imagenhub/t2i: ImagenHub text-to-image
+  imagenhub/edit: ImagenHub editing
   genai_arena/generation: GenAI-Arena generation
   genai_arena/edition: GenAI-Arena edition
   pickapic_u: Pick-a-Pic
@@ -31,6 +34,9 @@ datasets:   # task, source, which data we use
   arena55k: [text; chat, lmarena arena-human-preference-55k, "random sample at the natural tie rate (SCOPE samples 2,000 non-tied, ToE 5.2k)"]
   polaris: [image -> two captions; human 0-1, "Polaris, CVPR 2024", "full test set; 24% of candidates are captions of other images (score 0), so 98% of ties are two unrelated captions - sanity case only"]
   agiqa3k: [text -> images; MOS quality + alignment, "AGIQA-3K, IEEE TCSVT 2023", all 300 prompts]
+  evalmuse: [text -> images; 3-6 raters x 1-5 alignment per image, "EvalMuse-40K (arXiv 2412.18150)", "all 32,717 labelled train images, each in two within-prompt pairs (random cycle per prompt)"]
+  imagenhub/t2i: [text -> images; 3 raters x SC/PQ in 0-1, "ImagenHub, ICLR 2024", all 197 prompts x 7 models, all pairs]
+  imagenhub/edit: [source image + instruction -> edits; 3 raters x SC/PQ, "ImagenHub, ICLR 2024", "all 179 inputs x 8 models (Imagic dropped), all pairs"]
 methods:
   - [P1, SCOPE 原样（删平局校准）]
   - [P1s, SCOPE 原样，单序]
@@ -62,6 +68,9 @@ latex_names:
   mllm_judge: MLLM-J (pairs)
   mllm_judge_sp: MLLM-J (scores)
   genaibench: GenAI-Bench
+  evalmuse: EvalMuse-40K
+  imagenhub/t2i: ImagenHub T2I
+  imagenhub/edit: ImagenHub edit
   genai_arena/generation: GenAI-Arena gen.
   genai_arena/edition: GenAI-Arena edit
   pickapic_u: Pick-a-Pic
@@ -74,6 +83,9 @@ latex_tasks:
   mllm_judge: VQA answers
   mllm_judge_sp: VQA answers
   genaibench: text-to-image
+  evalmuse: text-to-image
+  imagenhub/t2i: text-to-image
+  imagenhub/edit: image editing
   genai_arena/generation: text-to-image
   genai_arena/edition: image editing
   pickapic_u: text-to-image
