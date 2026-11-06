@@ -461,7 +461,8 @@ def run(cfg, store, log):
                             ec = np.where(y[cc] == 2, 1.0, (sa_fc[cc] != y[cc]).astype(float))
                             ef = np.where(y[ft] == 2, 1.0, (sa_fc[ft] != y[ft]).astype(float)) if key == "T2" else (sa_fc[ft] != y[ft]).astype(float)
                             lam = ltt(sa_s[cc][:, None], ec[:, None], al, delta, sa_s[ft][:, None], ef[:, None], gc=(gi[cc] if unit_src else None), gf=(gi[ft] if unit_src else None))
-                            res[key] = row(sa_s[tt] <= lam, np.zeros(len(tt), int), sa_et[tt], al, Ty[tt], (gi[tt] if unit_src else None))
+                            res[key] = row(sa_s[tt] <= lam, np.zeros(len(tt), int), sa_et[tt], al, Ty[tt],
+                                           (gi[tt] if (unit_src or unit_one or unit_sp) else None))   # source-weighted test risk
                     for key, S, E in (("G0", S0, E0), ("G1", S31 if need1 else None, E31 if need1 else None), ("G2", S3, E3)):
                         if key in methods:
                             ok, ch = claims(S[te], ltt(S[cal], E[cal], al, delta, S[fit], E[fit], gc=GC, gf=GF))

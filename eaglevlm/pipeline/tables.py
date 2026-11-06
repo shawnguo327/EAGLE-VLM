@@ -51,6 +51,7 @@ def main():
         w = csv.writer(f); w.writerow(["table_input", "summary_csv"]); [w.writerow([k, v]) for k, v in src.items()]
     CONV = {(r["dataset"], r["judge"]): r for r in read(src["conventional"])} if "conventional" in src else {}
     CERT = {(r["dataset"], r["judge"], r["method"], r["alpha"]): r for r in read(src["certify"])} if "certify" in src else {}
+    CERTP = {(r["dataset"], r["judge"], r["method"], r["alpha"]): r for r in read(src["certify_pair"])} if "certify_pair" in src else None
     ROUT = {}
     for k in [k for k in src if k == "router" or k.startswith("router_")]:
         ROUT.update({(r["dataset"], r["judge"], r["variant"], r["rule"], r["alpha"]): r for r in read(src[k])})
@@ -150,7 +151,7 @@ def main():
     if cfg.get("latex_dir"):
         from eaglevlm.pipeline import latex
         cfg["_stamp"] = os.path.basename(out)
-        print("latex:", latex.write(cfg, CONV, CERT, ROUT, cfg["latex_dir"]))
+        print("latex:", latex.write(cfg, CONV, CERT, ROUT, cfg["latex_dir"], CERTP))
         import shutil
         for f in os.listdir(cfg["latex_dir"]):
             shutil.copy(os.path.join(cfg["latex_dir"], f), out)
