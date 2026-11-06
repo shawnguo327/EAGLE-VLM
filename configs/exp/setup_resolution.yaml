@@ -1,0 +1,15 @@
+# Setup check: 768 px vs full resolution (paired, items with an image > 768 px)
+name: setup_resolution
+type: script
+include: ../paths.bjserver.yaml
+script: scripts/res_ablation.py
+cwd: /media/shawn/C/papers/VLM/judgebench   # scripts resolve item / output paths relative to this directory
+jobs:
+  - out: res_ablation_8b.md
+    args: ["--judges", "qwen3vl8b", "--sets", "mllm_judge,mllm_judge_sp,genai_arena,imagerewarddb,genaibench"]
+  - out: res_ablation_q35.md
+    args: ["--judges", "qwen35_9b", "--sets", "mllm_judge,mllm_judge_sp"]
+  - out: res_ablation_q25.md
+    args: ["--judges", "qwen25vl7b", "--sets", "mllm_judge,mllm_judge_sp"]
+  - out: res_ablation_32b.md
+    args: ["--judges", "qwen3vl32b", "--sets", "mllm_judge,mllm_judge_sp"]   # + genaibench once the 32B full-res GenAI-Bench run finishes

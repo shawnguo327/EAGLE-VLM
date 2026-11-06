@@ -66,7 +66,7 @@ def git_info():
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("config"); ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--results-root", default=None); a = ap.parse_args()
-    cfg = load_cfg(a.config); mod = TYPES[cfg["type"]]
+    cfg = load_cfg(a.config); mod = TYPES.get(cfg["type"])
     root = a.results_root or cfg["paths"]["results"]
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S"); out = os.path.join(root, cfg["name"], ts); os.makedirs(out)
     yaml.safe_dump(cfg, open(f"{out}/config.yaml", "w"), sort_keys=False, allow_unicode=True)
@@ -75,6 +75,15 @@ def main():
     env = dict(git_commit=commit, git_dirty=dirty, python=platform.python_version(), numpy=numpy.__version__, scipy=scipy.__version__,
                sklearn=sklearn.__version__, host=socket.gethostname(), command=" ".join(sys.argv), start=datetime.datetime.now().isoformat())
     log = open(f"{out}/run.log", "w")
+    if cfg["type"] == "script":                       # wrapped analysis script (section-2 mechanism analyses etc.)
+        from eaglevlm.pipeline import scriptexp
+        info = scriptexp.run(cfg, out, lambda m: (log.write(m + "\n"), print(m, flush=True)))
+        env.update(info); env["end"] = datetime.datetime.now().isoformat()
+        json.dump(env, open(f"{out}/env.json", "w"), indent=1)
+        link = os.path.join(root, cfg["name"], "latest")
+        if os.path.islink(link):
+            os.remove(link)
+        os.symlink(ts, link); print("results:", out); return
     # units: (dataset, judge) for certify / conventional; dataset (all judges, needed for the jury) for router
     if cfg["type"] == "router":
         units = [dict(cfg, datasets=[d]) for d in cfg["datasets"]]

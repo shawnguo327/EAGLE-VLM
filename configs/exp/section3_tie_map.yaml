@@ -1,0 +1,9 @@
+# Section 3: tie map enrichment and absolute-level claims
+name: section3_tie_map
+type: script
+include: ../paths.bjserver.yaml
+script: scripts/tie_map.py
+cwd: /media/shawn/C/papers/VLM/judgebench   # scripts resolve item / output paths relative to this directory
+jobs:
+  - out: tie_map_level.md
+    args: ["--level-claims"]

@@ -1,0 +1,9 @@
+# Section 2: tie behaviour of base instruction-tuned VLMs vs judge-trained models
+name: section2_base_vs_judge
+type: script
+include: ../paths.bjserver.yaml
+script: scripts/tie_basevsjudge.py
+cwd: /media/shawn/C/papers/VLM/judgebench   # scripts resolve item / output paths relative to this directory
+jobs:
+  - out: tie_basevsjudge.md
+    args: []

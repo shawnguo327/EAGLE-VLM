@@ -1,0 +1,11 @@
+# Section 3 limitation: task-conditional risk (per task and two task groups)
+name: section3_mondrian
+type: script
+include: ../paths.bjserver.yaml
+script: scripts/mondrian.py
+cwd: /media/shawn/C/papers/VLM/judgebench   # scripts resolve item / output paths relative to this directory
+jobs:
+  - out: mondrian_task.md
+    args: ["--grouping", "task"]
+  - out: mondrian_qa_vs_open.md
+    args: ["--grouping", "qa_vs_open"]

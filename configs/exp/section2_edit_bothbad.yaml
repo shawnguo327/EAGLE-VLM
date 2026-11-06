@@ -1,0 +1,9 @@
+# Section 2: are both-bad edit ties explained by global image similarity
+name: section2_edit_bothbad
+type: script
+include: ../paths.bjserver.yaml
+script: scripts/edit_bothbad.py
+cwd: /media/shawn/C/papers/VLM/judgebench   # scripts resolve item / output paths relative to this directory
+jobs:
+  - out: edit_bothbad.md
+    args: []
