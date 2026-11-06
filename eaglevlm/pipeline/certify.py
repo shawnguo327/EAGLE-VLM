@@ -9,6 +9,10 @@ Methods:
   TC  tie calibration (Deutsch et al., EMNLP 2023, "Ties Matter"): 'tie' when |p - .5| <= eps, otherwise the forced-choice
       winner; eps maximises three-way accuracy on the calibration split; a claim for every pair, no guarantee
   T1  Trust-or-Escalate as published (4 simulated annotators; calibration without ties)   T2  ToE, ties kept
+  T4  Trust-or-Escalate with its few-shot simulated annotators (review W1; judge_bench conditions bin_fs1..3: N = 3
+      annotators, each K = 3 human-labelled demonstrations; confidence max_y of the annotators' mean probability, as in
+      the paper), calibration without ties          T5  the same, ties kept in calibration
+      (only where the few-shot prompts were run; demonstration items are excluded from evaluation)
   G0  graded, no calibrator       G1  graded + calibrator, single-order features      G2  graded + calibrator (ours)
   G3  graded, every claim level <= alpha (intersection-union)
   G4  graded, overall AND strict-claim risk <= alpha, one threshold
@@ -63,6 +67,7 @@ from sklearn.linear_model import LogisticRegression
 GRID = np.linspace(0, 1, 201)[1:]
 LS = np.r_[-np.inf, np.linspace(.04, .40, 10)]       # strict-claim thresholds of G5; -inf = strict claims switched off
 SA = ["tri_sa1", "tri_sa2", "tri_sa3", "tri_sa4"]
+FS = ["bin_fs1", "bin_fs2", "bin_fs3"]                 # few-shot simulated annotators (Trust-or-Escalate, review W1)
 H = lambda p: -(p * np.log(p + 1e-12) + (1 - p) * np.log(1 - p + 1e-12))
 
 
@@ -208,6 +213,18 @@ def persona(store, ds, j, ids):
             for c in SA:
                 t1, t2 = r[(c, "AB")], r[(c, "BA")]
                 pa = (t1["A"] + t2["B"]) / 2; pb = (t1["B"] + t2["A"]) / 2; ps.append(pa / (pa + pb))
+            out[i] = float(np.mean(ps))
+    return out
+
+
+def persona_fs(store, ds, j, ids):
+    """few-shot simulated annotators: per id the mean over the N = 3 annotators of their order-averaged P(cand 0 better)"""
+    R = store.load(ds, j, conds=set(FS)); out = {}
+    for i in ids:
+        r = R.get(i, {})
+        if all((c, o) in r for c in FS for o in ("AB", "BA")):
+            ps = [(r[(c, "AB")]["A"] / (r[(c, "AB")]["A"] + r[(c, "AB")]["B"]) + r[(c, "BA")]["B"] / (r[(c, "BA")]["A"] + r[(c, "BA")]["B"])) / 2
+                  for c in FS]
             out[i] = float(np.mean(ps))
     return out
 
@@ -380,6 +397,12 @@ def run(cfg, store, log):
                 if nsa >= 200:
                     ps = np.array([PS.get(i, .5) for i in ids]); sa_s = 1 - np.maximum(ps, 1 - ps)
                     sa_fc = np.where(ps > .5, 0, 1); sa_et = np.where(y == 2, 1.0, (sa_fc != y).astype(float))
+            nfs = 0
+            if {"T4", "T5"} & set(methods) and len(members) == 1:
+                PF = persona_fs(store, ds, j, ids); hasf = np.array([i in PF for i in ids]); nfs = int(hasf.sum())
+                if nfs >= 200:
+                    pf = np.array([PF.get(i, .5) for i in ids]); fs_s = 1 - np.maximum(pf, 1 - pf)
+                    fs_fc = np.where(pf > .5, 0, 1); fs_et = np.where(y == 2, 1.0, (fs_fc != y).astype(float))
             rng = np.random.default_rng(cfg.get("seed", 0))
             for sp in range(cfg["n_splits"]):
                 if grp or unit_src or unit_one or unit_sp:
@@ -463,6 +486,16 @@ def run(cfg, store, log):
                             lam = ltt(sa_s[cc][:, None], ec[:, None], al, delta, sa_s[ft][:, None], ef[:, None], gc=(gi[cc] if unit_src else None), gf=(gi[ft] if unit_src else None))
                             res[key] = row(sa_s[tt] <= lam, np.zeros(len(tt), int), sa_et[tt], al, Ty[tt],
                                            (gi[tt] if (unit_src or unit_one or unit_sp) else None))   # source-weighted test risk
+                    if nfs >= 200:                  # few-shot Trust-or-Escalate (review W1), same code path as T1 / T2
+                        ct, tt, ft = cal[hasf[cal]], te[hasf[te]], fit[hasf[fit]]
+                        for key, cc in (("T4", ct[y[ct] != 2]), ("T5", ct)):
+                            if key not in methods:
+                                continue
+                            ec = np.where(y[cc] == 2, 1.0, (fs_fc[cc] != y[cc]).astype(float))
+                            ef = np.where(y[ft] == 2, 1.0, (fs_fc[ft] != y[ft]).astype(float)) if key == "T5" else (fs_fc[ft] != y[ft]).astype(float)
+                            lam = ltt(fs_s[cc][:, None], ec[:, None], al, delta, fs_s[ft][:, None], ef[:, None], gc=(gi[cc] if unit_src else None), gf=(gi[ft] if unit_src else None))
+                            res[key] = row(fs_s[tt] <= lam, np.zeros(len(tt), int), fs_et[tt], al, Ty[tt],
+                                           (gi[tt] if (unit_src or unit_one or unit_sp) else None))
                     for key, S, E in (("G0", S0, E0), ("G1", S31 if need1 else None, E31 if need1 else None), ("G2", S3, E3)):
                         if key in methods:
                             ok, ch = claims(S[te], ltt(S[cal], E[cal], al, delta, S[fit], E[fit], gc=GC, gf=GF))
@@ -500,7 +533,8 @@ def run(cfg, store, log):
                         res["G5pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
                     for mth, r in res.items():
                         out.append(dict(dataset=spec, judge=j, n=n, human_tie=float((y == 2).mean()),
-                                        n_persona=(nsa if mth in ("T1", "T2") else None), method=mth, alpha=al, split=sp, **r))
+                                        n_persona=(nsa if mth in ("T1", "T2") else nfs if mth in ("T4", "T5") else None), method=mth,
+                                        alpha=al, split=sp, **r))
             log(f"done {spec} {j} (n={n})")
     return out
 
