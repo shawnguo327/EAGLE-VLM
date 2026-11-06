@@ -1,0 +1,15 @@
+# Downstream (Section 9) x improvement plan experiment 7: two-candidate selection with escalation on the Best-of-8 candidate
+# pairs (ScienceQA_TEST; label: correct > wrong, both correct / both wrong = tie), certified on the selection loss with the
+# question as the unit (one pair per calibration question); plus the factorial and p(T) ablations on the same pairs.
+name: ablate_bon
+type: ablate
+include: ../paths.bjserver.yaml
+datasets: [bon_scienceqa]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+bootstrap: 2000
+min_coverage: 0.95
