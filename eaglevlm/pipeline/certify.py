@@ -14,6 +14,7 @@ Methods:
   G4  graded, overall AND strict-claim risk <= alpha, one threshold
   G5  graded, overall AND strict-claim risk <= alpha, separate strict / tie-weak thresholds (Bonferroni over 10 strict values)
   G2pw / G5pw  as G2 / G5 with the judge's pointwise (single-candidate 1-9 score) features added to the calibrator
+  P4pw  compute-matched control: P4 (strict claims only) with the same pointwise-augmented calibrator
   judge "jury:<m1>+<m2>+...": the calibrator sees the features of all member judges (pairs judged by every member);
   P-type baselines use the members' averaged probabilities; T methods are not defined for a jury
 Optional cfg 'group: meta.<key>' (e.g. meta.question_index for Best-of-N candidate pairs): the fit / calibration / test
@@ -217,7 +218,7 @@ def run(cfg, store, log):
                 F_full, F_one = np.concatenate(parts_full, 1), np.concatenate(parts_one, 1)
                 p, Q, f1, q1 = np.mean(P_, 0), np.mean(Q_, 0), np.mean(F1_, 0), np.mean(Q1_, 0)
             PWF = None
-            if {"G2pw", "G5pw"} & set(methods):
+            if {"G2pw", "G5pw", "P4pw"} & set(methods):
                 pws = [pointwise_feats(store, ds, m, ids) for m in members]; pws = [x for x in pws if x is not None]
                 PWF = np.mean(pws, 0) if pws else None
             fc = np.where(p > .5, 0, 1); eb = (fc != y).astype(float); et = np.where(y == 2, 1.0, eb)
@@ -295,6 +296,9 @@ def run(cfg, store, log):
                     if "G5" in methods:
                         ls, lw = ltt_two(S3[cal], E3[cal], S3[fit], E3[fit], al, delta); ok, ch = claims2(S3[te], ls, lw)
                         res["G5"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                    if PWF is not None and "P4pw" in methods:      # compute-matched control for G2pw / G5pw: the same
+                        lam = ltt(S3p[cal][:, [0]], E3p[cal][:, [0]], al, delta, S3p[fit][:, [0]], E3p[fit][:, [0]])   # features,
+                        res["P4pw"] = row(S3p[te, 0] <= lam, zeros, E3p[te, 0], al, Ty[te])                       # strict claims only
                     if PWF is not None and "G2pw" in methods:
                         ok, ch = claims(S3p[te], ltt(S3p[cal], E3p[cal], al, delta, S3p[fit], E3p[fit]))
                         res["G2pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])

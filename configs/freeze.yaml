@@ -1,5 +1,5 @@
 # Freeze all raw judge outputs + item files used by the paper into one snapshot (python -m eaglevlm.pipeline.freeze)
 include: paths.bjserver.yaml
-snapshot: /media/shawn/C/papers/VLM/results/raw_snapshot/20261105
+snapshot: /media/shawn/C/papers/VLM/results/raw_snapshot/20261106
 datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena, pickapic_u, imagerewarddb, mtbench_human, arena55k, polaris, agiqa3k]
 judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b, r1reward, llavacritic7b, llavaov7b]
