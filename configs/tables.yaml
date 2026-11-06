@@ -29,7 +29,7 @@ datasets:   # task, source, which data we use
   imagerewarddb: [text -> images; expert ranks and 1-7 scores, "ImageReward, NeurIPS 2023", full pairwise expansion]
   mtbench_human: [text; multi-turn chat, "MT-Bench, NeurIPS 2023 D&B", all expert-judged pairs]
   arena55k: [text; chat, lmarena arena-human-preference-55k, "random sample at the natural tie rate (SCOPE samples 2,000 non-tied, ToE 5.2k)"]
-  polaris: [image -> two captions; human 0-1, "Polaris, CVPR 2024", full test set]
+  polaris: [image -> two captions; human 0-1, "Polaris, CVPR 2024", "full test set; 24% of candidates are captions of other images (score 0), so 98% of ties are two unrelated captions - sanity case only"]
   agiqa3k: [text -> images; MOS quality + alignment, "AGIQA-3K, IEEE TCSVT 2023", all 300 prompts]
 methods:
   - [P1, SCOPE 原样（删平局校准）]

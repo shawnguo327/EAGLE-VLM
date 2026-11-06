@@ -1,0 +1,9 @@
+# Router on the two absolute-score datasets with full data (Polaris full test, AGIQA-3K all prompts); judges as available
+name: router_abs
+type: router
+include: ../paths.bjserver.yaml
+datasets: [polaris, agiqa3k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+n_splits: 100

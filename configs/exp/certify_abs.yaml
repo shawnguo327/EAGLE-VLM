@@ -1,0 +1,12 @@
+# Certification chain on Polaris (full) and AGIQA-3K (all prompts)
+name: certify_abs
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [polaris, agiqa3k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
+methods: [P1, P1s, P2, P3, P4, G0, G1, G2, G3, G4, G5]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+split: {fit: 0.25, cal: 0.25}
+n_splits: 100
+min_coverage: 0.95
