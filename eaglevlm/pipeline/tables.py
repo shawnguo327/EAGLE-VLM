@@ -12,6 +12,8 @@ import yaml
 
 f2 = lambda v: "—" if v is None else ("·" if v != v else f"{v:.2f}")
 f3 = lambda v: "—" if v is None else ("·" if v != v else f"{v:.3f}")
+f0 = lambda v: "—" if v is None else ("·" if v != v else f"{v:.0f}")
+SRC_COLS = [("risk_source", "按 source 加权的错误率", f3), ("guarantee_success_source", "source 级保证成功率", f2)]
 
 
 def num(x):
@@ -56,10 +58,20 @@ def main():
     for k in [k for k in src if k == "router" or k.startswith("router_")]:
         ROUT.update({(r["dataset"], r["judge"], r["variant"], r["rule"], r["alpha"]): r for r in read(src[k])})
     judges = cfg["judges"]; sets = cfg["dataset_order"]
+    proto = "25% 训练 / 25% 校准 / 50% 测试，100 次随机划分，δ = 0.1"          # protocol of the certify run, from its saved config
+    src_unit = "pair"
+    if "certify" in src:
+        cc = yaml.safe_load(open(os.path.join(os.path.dirname(src["certify"]), "config.yaml")))
+        f_, c_ = cc["split"]["fit"], cc["split"]["cal"]; u_ = cc.get("unit", "pair"); src_unit = u_
+        if u_ == "source1":
+            proto = (f"按 source 划分（{f_:.0%} 训练 / {c_:.0%} 校准 / {1 - f_ - c_:.0%} 测试），校准集每个 source 随机取一对，"
+                     f"{cc['n_splits']} 次随机划分，δ = {cc['delta']}；风险为按 source 加权的测试风险")
+        else:
+            proto = f"{f_:.0%} 训练 / {c_:.0%} 校准 / {1 - f_ - c_:.0%} 测试（unit: {u_}），{cc['n_splits']} 次随机划分，δ = {cc['delta']}"
     for compact in (False, True):
         L = ["# 论文式结果表（自动生成）", "",
              f"由 `python -m eaglevlm.pipeline.tables` 从以下 summary.csv 生成（{datetime.datetime.now():%Y-%m-%d %H:%M}）："] + [f"- {k}: `{v}`" for k, v in src.items()] + [
-             "", "`·` = 所有划分都没有输出（全部弃权）；`—` = 未运行。认证实验：25% 训练 / 25% 校准 / 50% 测试，100 次随机划分，δ = 0.1。带 * 的是专门训练的 judge。", ""]
+             "", "`·` = 所有划分都没有输出（全部弃权）；`—` = 未运行。认证实验：" + proto + "。带 * 的是专门训练的 judge。", ""]
         if compact:
             L += ["**紧凑版**：每格 = 通用 VLM 的均值，括号内为最小–最大；×n = 参与平均的 judge 数。逐 judge 数字见 tables_full.md。", ""]
         # ---- Table 0
@@ -95,6 +107,8 @@ def main():
               ("human_agreement", "人类一致率", f3), ("guarantee_success", "保证成功率", f2), ("significant_violation", "显著违约率", f2),
               ("strict_error", "严格断言错误率", f3), ("empty_splits", "空划分", f2),
               ("tie_share_accepted", "被接受样本中的平局占比", f3), ("tie_share_strict", "严格断言中的平局占比", f3)]
+        if src_unit == "source1":          # source-level run: its certified object, and no pair-binomial significance test
+            K2 = [k for k in K2 if k[0] != "significant_violation"] + SRC_COLS + [("accepted_median", "回答数中位数", f0)]
         for al in cfg["alphas_certify"]:
             L += ["", f"## 表 2 α = {al}　风险控制（对应 SCOPE 表 3、Trust or Escalate 表 2）", "",
                   "部署在含平局的测试集上。输出率 = coverage；实际错误率 = SCOPE 的 empirical FDR；人类一致率 = ToE 的 empirical human agreement；"
@@ -126,6 +140,8 @@ def main():
         K4 = [("acceptance", "输出率", f2), ("informative", "有信息量", f2), ("decisive", "判决率", f2), ("level", "绝对质量结论", f2),
               ("level_precision", "其正确率", f2), ("weak", "弱断言", f2), ("risk", "实际错误率", f3), ("human_agreement", "人类一致率", f3),
               ("guarantee_success", "保证成功率", f2), ("significant_violation", "显著违约率", f2)]
+        if src_unit == "source1":
+            K4 = [k for k in K4 if k[0] != "significant_violation"] + SRC_COLS
         for al in cfg["alphas_router"]:
             L += ["", f"## 表 4 α = {al}　成对 → 单项打分路由", "",
                   "有信息量 = 严格断言 + 两种绝对质量结论（\"两者都不合格\"、\"两者没有明显差距\"）；规则\"总体\" = 总错误率 ≤ α，\"每一级\" = 每种结论各自 ≤ α。"
