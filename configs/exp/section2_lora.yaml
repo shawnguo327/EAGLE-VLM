@@ -6,4 +6,4 @@ script: scripts/lora_eval.py
 cwd: /media/shawn/C/papers/VLM/judgebench   # scripts resolve item / output paths relative to this directory
 jobs:
   - out: lora_eval.md
-    args: []
+    args: ["--tags", "lm,connector,lm_hard,lm_hard_all,lm_e3"]   # dose-response: + ties-dropped LoRA on all data, + 3-epoch tie LoRA
