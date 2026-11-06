@@ -54,7 +54,8 @@ MODELS = {"qwen3vl8b": PP / "Qwen3-VL-8B-Instruct", "qwen35_9b": PP / "Qwen3.5-9
           "qwen3vl32b": PP / "Qwen3-VL-32B-Instruct", "internvl35_8b": PP / "InternVL3_5-8B-HF"}
 MAXSIDE, LOWRES, HIRES = 768, 112, 1536
 MAXCHARS = 4000
-PAIR = {"bin", "tri", "str7", "bin_blind", "bin_lowres", "bin_hires", "tri_hires", "bin_desc", "tri_p1", "tri_p2", "tri_p3",
+FEWSHOT = {"bin_fs1", "bin_fs2", "bin_fs3"}   # Trust-or-Escalate simulated annotators (Jung et al., ICLR 2025, Sec. 2.2)
+PAIR = {"bin_fs1", "bin_fs2", "bin_fs3", "bin", "tri", "str7", "bin_blind", "bin_lowres", "bin_hires", "tri_hires", "bin_desc", "tri_p1", "tri_p2", "tri_p3",
         "tri_jpeg", "tri_crop", "tri_blind", "tri_wrong", "tri_zoom", "tri_zoomr", "tri_zoomlo",
         "tri_sa1", "tri_sa2", "tri_sa3", "tri_sa4", "bin_same", "bin_grid", "bin_relabel", "bin_qfirst"}
 IMG_ONLY = {"tri_jpeg", "tri_crop", "bin_lowres", "bin_hires", "bin_desc", "tri_hires", "score_hires"}      # no-ops on text items: skipped there
@@ -65,6 +66,8 @@ ZOOM_FRAC, ZOOM_SIDE, ALIGN_TOL = 0.4, 512, 40.0        # window = 40% of width 
 
 
 def applies(c, r):
+    if c in FEWSHOT:
+        return r["kind"] in ("resp", "text") and len(r["context"]) <= 1 and r["id"] not in DEMO_IDS.get(r["dataset"], set())
     if c in IMGCAND_ONLY:
         return r["kind"] == "img"
     if c in RESP_ONLY:
@@ -214,6 +217,42 @@ def clip(t):
     return t if len(t) <= MAXCHARS else t[:MAXCHARS] + " …[truncated]"
 
 
+# ---- Trust-or-Escalate simulated annotators (faithful few-shot version).  ToE builds N simulated annotators, each the judge
+# prompted with K human-labelled demonstrations (majority labels for aggregated data, as for ChatArena / Auto-J), and uses
+# c(x) = max_y mean_j p(y | x; demos_j) as confidence with a binary label space.  Here K = N = 3 (ToE's Auto-J setting):
+# the demonstration pool of a dataset = the first 3N decided items, in crc32 order, of its first item file in the plan
+# (the main file; fixed, label-independent order), shared by all of the dataset's files; annotator j gets demonstrations
+# 3j..3j+2; demonstration items are not evaluated with these conditions; each demonstration response is clipped to FS_CHARS.
+FS_K, FS_N, FS_CHARS = 3, 3, 1500
+DEMOS, DEMO_IDS = {}, {}
+
+
+def register_demos(rows):
+    ds = rows[0]["dataset"] if rows else None
+    if ds is None or ds in DEMO_IDS:
+        return
+    pool = sorted([r for r in rows if str(r.get("label")) in ("0", "1")], key=lambda r: zlib.crc32(r["id"].encode()))[:FS_K * FS_N]
+    for j in range(FS_N):
+        DEMOS[(ds, j)] = pool[FS_K * j: FS_K * (j + 1)]
+    DEMO_IDS[ds] = {r["id"] for r in pool}
+
+
+def demo_content(d, load):
+    """one demonstration in the query's own format, followed by its human verdict"""
+    c = []
+    if d["kind"] == "resp":
+        for p in d["context"]:
+            c.append({"type": "image", "image": load(p)})
+    clip2 = lambda t: (t or "") if len(t or "") <= FS_CHARS else (t or "")[:FS_CHARS] + " …[truncated]"
+    t = ASK_RESP["bin"].format(crit=d["criterion"])
+    if d["kind"] == "text":
+        t = t.replace("to the question about the image(s)", "to the user's question").replace(
+            "the question about the image(s)", "the user's question")
+    c.append({"type": "text", "text": f"Example.\nQuestion: {clip2(d['question'])}\n\n[Response A]\n{clip2(d['cand'][0])}\n\n"
+                                      f"[Response B]\n{clip2(d['cand'][1])}\n\n{t}\nAnswer: {'A' if str(d['label']) == '0' else 'B'}\n\n"})
+    return c
+
+
 def build(r, cond, order, desc=None):
     """Chat messages for one call. `desc` = {id: {"ctx": [str], "cand": [str, str]}} for bin_desc."""
     c = []
@@ -222,6 +261,10 @@ def build(r, cond, order, desc=None):
     load = lambda p: load_img(p, ms, pert)
     ask = cond if cond in ("tri", "str7", "tri_p1", "tri_p2", "tri_p3") else "tri" if cond.startswith("tri") else "bin"
     D = desc.get(r["id"]) if (cond == "bin_desc" and desc is not None) else None
+    if cond in FEWSHOT:
+        for d in DEMOS[(r["dataset"], int(cond[-1]) - 1)]:
+            c += demo_content(d, load)
+        c.append({"type": "text", "text": "Now the case to judge.\n"})
     if cond in PERSONA:
         c.append({"type": "text", "text": PERSONA[cond]})
     if cond == "bin_desc" and D is None:
@@ -384,6 +427,8 @@ def main():
     jobs = []
     for k, e in enumerate(plan):
         rows = [json.loads(l) for l in open(e["items"])]
+        if FEWSHOT & set(conds):
+            register_demos(rows)
         if "tri_wrong" in conds:      # donor = next item (crc32 order) of the same file with different question images
             pool = sorted([r for r in rows if r["kind"] == "resp" and r["context"]], key=lambda r: zlib.crc32(r["id"].encode()))
             for j, r in enumerate(pool):
