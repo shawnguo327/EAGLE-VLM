@@ -14,6 +14,9 @@ Methods:
   G2pw / G5pw  as G2 / G5 with the judge's pointwise (single-candidate 1-9 score) features added to the calibrator
   judge "jury:<m1>+<m2>+...": the calibrator sees the features of all member judges (pairs judged by every member);
   P-type baselines use the members' averaged probabilities; T methods are not defined for a jury
+Optional cfg 'group: meta.<key>' (e.g. meta.question_index for Best-of-N candidate pairs): the fit / calibration / test
+split is drawn over groups, so all pairs of a group fall in the same part; without it the split is over pairs, as in the
+original scripts.
 Per split and alpha one CSV row: acceptance, mean set size, decisive share, strict errors / strict claims, accepted,
 errors, risk, violated (risk > alpha), significant (one-sided binomial p < .05 that risk > alpha), empty."""
 import collections
@@ -189,6 +192,9 @@ def run(cfg, store, log):
             if len(ids) < 200 or len(ids) < cfg.get("min_coverage", .95) * len(I):
                 log(f"skip {spec} {j}: {len(ids)} / {len(I)} items with both prompts in both orders"); continue
             n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids])
+            grp = cfg.get("group")
+            if grp:
+                ug, gi = np.unique(np.array([str(I[i]["meta"][grp.split(".", 1)[1]]) for i in ids]), return_inverse=True)
             parts_full, parts_one, P_, Q_, F1_, Q1_, C_ = [], [], [], [], [], [], []
             for m in members:
                 Sg = SG[m]
@@ -217,11 +223,16 @@ def run(cfg, store, log):
                     sa_fc = np.where(ps > .5, 0, 1); sa_et = np.where(y == 2, 1.0, (sa_fc != y).astype(float))
             rng = np.random.default_rng(cfg.get("seed", 0))
             for sp in range(cfg["n_splits"]):
-                pm = rng.permutation(n)
-                a1, a2 = int(round(fit_f * n)), int(round((fit_f + cal_f) * n))
-                if fit_f == .25 and cal_f == .25:
-                    a1, a2 = n // 4, n // 2                     # identical to the original scripts
-                fit, cal, te = pm[:a1], pm[a1:a2], pm[a2:]
+                if grp:
+                    rk = np.empty(len(ug), int); rk[rng.permutation(len(ug))] = np.arange(len(ug)); r = rk[gi]
+                    g1, g2 = int(round(fit_f * len(ug))), int(round((fit_f + cal_f) * len(ug)))
+                    fit, cal, te = np.where(r < g1)[0], np.where((r >= g1) & (r < g2))[0], np.where(r >= g2)[0]
+                else:
+                    pm = rng.permutation(n)
+                    a1, a2 = int(round(fit_f * n)), int(round((fit_f + cal_f) * n))
+                    if fit_f == .25 and cal_f == .25:
+                        a1, a2 = n // 4, n // 2                     # identical to the original scripts
+                    fit, cal, te = pm[:a1], pm[a1:a2], pm[a2:]
                 calnt = cal[y[cal] != 2]
                 Prf = head(F_full, y, fit); S3, E3 = graded_scores(Prf, y)
                 need1 = "G1" in methods

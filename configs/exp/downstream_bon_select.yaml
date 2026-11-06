@@ -1,0 +1,10 @@
+# Downstream (Section 9): Best-of-8 selection accuracy with the judges as rerankers (pointwise / pairwise) against greedy,
+# VisualPRM, majority vote and pass@8, and the quality of the preference pairs a judge would hand to DPO / RLAIF
+name: downstream_bon_select
+type: script
+include: ../paths.bjserver.yaml
+script: scripts/bon/bon_select.py
+cwd: /media/shawn/C/papers/EAGLE-VLM
+jobs:
+  - out: bon_select_scienceqa.md
+    args: ["--paths", "configs/paths.bjserver.yaml", "--dataset", "bon_scienceqa", "--judges", "qwen3vl8b,internvl35_8b,qwen35_9b"]

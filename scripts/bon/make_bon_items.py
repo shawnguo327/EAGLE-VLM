@@ -5,10 +5,8 @@ exactly two pairs, and the pair types (both correct / both wrong / one correct) 
 from VLMEvalKit's correctness of each candidate (boxed answer, exact matching): the correct one is better; both correct
 or both wrong -> tie.  The criterion is the one already used for MM-RLHF reasoning items.  The question is the prompt the
 policy saw (VLMEvalKit's CoT prompt) with the <image> placeholders removed; its images are shown as context.
-Writes  <data>/items/<name>.jsonl        all cyclic pairs (pairwise conditions)
-        <data>/items/<name>_score.jsonl  pairs (0,1),(2,3),(4,5),(6,7) only: each candidate once (pointwise condition;
-                                         same ids, so its rows merge into the same output file)
-        <data>/images/<name>/            copies of the question images
+Writes  <data>/items/<name>.jsonl   all cyclic pairs
+        <data>/images/<name>/       copies of the question images
 usage: python make_bon_items.py --cands .../boxed/candidates.jsonl.gz --name bon_scienceqa --data <judgebench_local>"""
 import argparse, gzip, json, os, re, shutil
 ap = argparse.ArgumentParser()
@@ -17,7 +15,7 @@ a = ap.parse_args()
 CRIT = "Prefer the response whose reasoning and final answer are correct for the image."
 os.makedirs(f"{a.data}/images/{a.name}", exist_ok=True)
 rows = [json.loads(l) for l in gzip.open(a.cands, "rt")]
-P, S, types = [], [], {}
+P, types = [], {}
 for r in rows:
     ctx = []
     for p in r["images"]:
@@ -36,11 +34,7 @@ for r in rows:
                  meta=dict(question_index=r["index"], slots=[k, k2], hit=list(h), option=[r["option"][k], r["option"][k2]],
                            prm=[r["prm"][k], r["prm"][k2]], prm_slot=r["prm_slot"], answer=r["answer"], pair_type=pt))
         P.append(x); types[pt] = types.get(pt, 0) + 1
-        if k % 2 == 0:
-            S.append(x)
-for fn, L in ((f"{a.data}/items/{a.name}.jsonl", P), (f"{a.data}/items/{a.name}_score.jsonl", S)):
-    with open(fn, "w") as f:
-        for x in L:
-            f.write(json.dumps(x, ensure_ascii=False) + "\n")
-print(f"{a.name}: {len(rows)} questions, {len(P)} pairs {types}, tie share {1 - types.get('decided', 0) / len(P):.3f}; "
-      f"{len(S)} pointwise pairs (each candidate once)")
+with open(f"{a.data}/items/{a.name}.jsonl", "w") as f:
+    for x in P:
+        f.write(json.dumps(x, ensure_ascii=False) + "\n")
+print(f"{a.name}: {len(rows)} questions, {len(P)} pairs {types}, tie share {1 - types.get('decided', 0) / len(P):.3f}")

@@ -1,0 +1,8 @@
+# Downstream (Section 9): accuracy / calibration / error detection of the judges on Best-of-8 candidate pairs, ties dropped
+# vs ties kept (same metrics as conventional.yaml)
+name: downstream_bon_conventional
+type: conventional
+include: ../paths.bjserver.yaml
+datasets: [bon_scienceqa]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b]
+min_coverage: 0.95

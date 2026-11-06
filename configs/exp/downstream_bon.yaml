@@ -1,0 +1,17 @@
+# Downstream (Section 9): judges on Best-of-8 candidate pairs.  ScienceQA_TEST, all 2,017 questions; candidates from the
+# official VLMEvalKit InternVL2_5-8B-BoN-8 run (InternVL2.5-8B samples, VisualPRM-8B selection), 8 cyclic pairs per question
+# (scripts/bon/make_bon_items.py); label from VLMEvalKit correctness: correct > wrong, both correct / both wrong = tie.
+# Same methods as certify_main except Trust-or-Escalate (its persona prompts were not run on these pairs); the
+# fit / calibration / test split is drawn over questions, so the pairs of one question never span two parts.
+name: downstream_bon
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [bon_scienceqa]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b]
+methods: [P1, P1s, P2, P3, P4, G0, G1, G2, G3, G4, G5, G2pw, G5pw]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+split: {fit: 0.25, cal: 0.25}      # test = the rest (0.5), by question
+group: meta.question_index
+n_splits: 100
+min_coverage: 0.95
