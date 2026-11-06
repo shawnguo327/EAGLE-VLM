@@ -6,6 +6,8 @@ Methods:
   P1  SCOPE as published (BPE of order-averaged forced choice; calibration WITHOUT ties; SCOPE linearised threshold)
   P1s same, single order          P2  SCOPE, ties kept in calibration       P3  strict + LTT (BPE), ties kept
   P4  strict + LTT with all our signal components and the 3-class calibrator
+  TC  tie calibration (Deutsch et al., EMNLP 2023, "Ties Matter"): 'tie' when |p - .5| <= eps, otherwise the forced-choice
+      winner; eps maximises three-way accuracy on the calibration split; a claim for every pair, no guarantee
   T1  Trust-or-Escalate as published (4 simulated annotators; calibration without ties)   T2  ToE, ties kept
   G0  graded, no calibrator       G1  graded + calibrator, single-order features      G2  graded + calibrator (ours)
   G3  graded, every claim level <= alpha (intersection-union)
@@ -18,7 +20,9 @@ Optional cfg 'group: meta.<key>' (e.g. meta.question_index for Best-of-N candida
 split is drawn over groups, so all pairs of a group fall in the same part; without it the split is over pairs, as in the
 original scripts.
 Per split and alpha one CSV row: acceptance, mean set size, decisive share, strict errors / strict claims, accepted,
-errors, risk, violated (risk > alpha), significant (one-sided binomial p < .05 that risk > alpha), empty."""
+errors, risk, violated (risk > alpha), significant (one-sided binomial p < .05 that risk > alpha), empty, and the human ties
+among the accepted pairs and among the strict claims (summary: tie_share_accepted / tie_share_strict, pooled over splits;
+compare with human_tie, the tie rate of all pairs - Proposition 1: a strict claim on a tie is always an error)."""
 import collections
 import numpy as np
 from scipy.stats import binom
@@ -172,12 +176,15 @@ def graded_scores(Pr, y):
     return S, E
 
 
-def row(ok, ch, err, al):
+def row(ok, ch, err, al, tie=None):
     size = np.where(~ok, 3, np.where(ch == 2, 2, 1)); st = ok & (ch == 0); k = int(ok.sum()); e = int(err[ok].sum()) if k else 0
     risk = e / k if k else np.nan
-    return dict(acceptance=float(ok.mean()), set_size=float(size.mean()), decisive=float(st.mean()), strict_errors=int(err[st].sum()),
-                strict_claims=int(st.sum()), accepted=k, errors=e, risk=risk, violated=(float(risk > al) if k else np.nan),
-                significant=(float(binom.sf(e - 1, k, al) < .05) if k else np.nan), empty=float(not ok.any()))
+    d = dict(acceptance=float(ok.mean()), set_size=float(size.mean()), decisive=float(st.mean()), strict_errors=int(err[st].sum()),
+             strict_claims=int(st.sum()), accepted=k, errors=e, risk=risk, violated=(float(risk > al) if k else np.nan),
+             significant=(float(binom.sf(e - 1, k, al) < .05) if k else np.nan), empty=float(not ok.any()))
+    if tie is not None:                     # human ties among the accepted pairs / among the strict claims (Proposition 1)
+        d.update(accepted_ties=int((ok & tie).sum()), strict_on_ties=int((st & tie).sum()))
+    return d
 
 
 def run(cfg, store, log):
@@ -191,7 +198,7 @@ def run(cfg, store, log):
             ids = sorted(set.intersection(*[set(v) for v in SG.values()]))
             if len(ids) < 200 or len(ids) < cfg.get("min_coverage", .95) * len(I):
                 log(f"skip {spec} {j}: {len(ids)} / {len(I)} items with both prompts in both orders"); continue
-            n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids])
+            n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids]); Ty = y == 2
             grp = cfg.get("group")
             if grp:
                 ug, gi = np.unique(np.array([str(I[i]["meta"][grp.split(".", 1)[1]]) for i in ids]), return_inverse=True)
@@ -245,17 +252,26 @@ def run(cfg, store, log):
                 for al in AL:
                     res = {}
                     if "P1" in methods:
-                        res["P1"] = row(u[te] <= thr(u[calnt], eb[calnt], al), zeros, et[te], al)
+                        res["P1"] = row(u[te] <= thr(u[calnt], eb[calnt], al), zeros, et[te], al, Ty[te])
                     if "P1s" in methods:
-                        res["P1s"] = row(u1[te] <= thr(u1[calnt], (fc1 != y)[calnt].astype(float), al), zeros, et1[te], al)
+                        res["P1s"] = row(u1[te] <= thr(u1[calnt], (fc1 != y)[calnt].astype(float), al), zeros, et1[te], al, Ty[te])
                     if "P2" in methods:
-                        res["P2"] = row(u[te] <= thr(u[cal], et[cal], al), zeros, et[te], al)
+                        res["P2"] = row(u[te] <= thr(u[cal], et[cal], al), zeros, et[te], al, Ty[te])
                     if "P3" in methods:
                         lam = ltt(u[cal][:, None], et[cal][:, None], al, delta, u[fit][:, None], et[fit][:, None])
-                        res["P3"] = row(u[te] <= lam, zeros, et[te], al)
+                        res["P3"] = row(u[te] <= lam, zeros, et[te], al, Ty[te])
                     if "P4" in methods:
                         lam = ltt(S3[cal][:, [0]], E3[cal][:, [0]], al, delta, S3[fit][:, [0]], E3[fit][:, [0]])
-                        res["P4"] = row(S3[te, 0] <= lam, zeros, E3[te, 0], al)
+                        res["P4"] = row(S3[te, 0] <= lam, zeros, E3[te, 0], al, Ty[te])
+                    if "TC" in methods:     # tie calibration (Deutsch et al., EMNLP 2023): 'tie' if |p - .5| <= eps, else the
+                        if al == AL[0]:     # forced-choice winner; eps maximises 3-way accuracy on the calibration split.
+                            mg = np.abs(p - .5); oc = cal[np.argsort(mg[cal], kind="stable")]; mc = mg[oc]   # every pair gets a
+                            ht = np.cumsum(y[oc] == 2); hs = np.cumsum(fc[oc] == y[oc]); tot = hs[-1]        # claim; no guarantee
+                            last = np.r_[mc[1:] != mc[:-1], True]; acc = (ht + tot - hs)[last]
+                            eps = mc[last][int(np.argmax(acc))] if acc.max() > tot else -1.0
+                            tc_ch = np.where(mg[te] <= eps, 1, 0)
+                            tc_err = np.where(tc_ch == 1, y[te] != 2, fc[te] != y[te]).astype(float)
+                        res["TC"] = row(np.ones(len(te), bool), tc_ch, tc_err, al, Ty[te])
                     if nsa >= 200:
                         ct, tt, ft = cal[has[cal]], te[has[te]], fit[has[fit]]
                         ctn = ct[y[ct] != 2]
@@ -265,26 +281,26 @@ def run(cfg, store, log):
                             ec = np.where(y[cc] == 2, 1.0, (sa_fc[cc] != y[cc]).astype(float))
                             ef = np.where(y[ft] == 2, 1.0, (sa_fc[ft] != y[ft]).astype(float)) if key == "T2" else (sa_fc[ft] != y[ft]).astype(float)
                             lam = ltt(sa_s[cc][:, None], ec[:, None], al, delta, sa_s[ft][:, None], ef[:, None])
-                            res[key] = row(sa_s[tt] <= lam, np.zeros(len(tt), int), sa_et[tt], al)
+                            res[key] = row(sa_s[tt] <= lam, np.zeros(len(tt), int), sa_et[tt], al, Ty[tt])
                     for key, S, E in (("G0", S0, E0), ("G1", S31 if need1 else None, E31 if need1 else None), ("G2", S3, E3)):
                         if key in methods:
                             ok, ch = claims(S[te], ltt(S[cal], E[cal], al, delta, S[fit], E[fit]))
-                            res[key] = row(ok, ch, E[te][np.arange(len(te)), np.maximum(ch, 0)], al)
+                            res[key] = row(ok, ch, E[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
                     if "G3" in methods:
                         ok, ch = claims(S3[te], ltt_p(S3[cal], E3[cal], S3[fit], E3[fit], al, delta, pjoint))
-                        res["G3"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al)
+                        res["G3"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
                     if "G4" in methods:
                         ok, ch = claims(S3[te], ltt_p(S3[cal], E3[cal], S3[fit], E3[fit], al, delta, pstrict))
-                        res["G4"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al)
+                        res["G4"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
                     if "G5" in methods:
                         ls, lw = ltt_two(S3[cal], E3[cal], S3[fit], E3[fit], al, delta); ok, ch = claims2(S3[te], ls, lw)
-                        res["G5"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al)
+                        res["G5"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
                     if PWF is not None and "G2pw" in methods:
                         ok, ch = claims(S3p[te], ltt(S3p[cal], E3p[cal], al, delta, S3p[fit], E3p[fit]))
-                        res["G2pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al)
+                        res["G2pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
                     if PWF is not None and "G5pw" in methods:
                         ls, lw = ltt_two(S3p[cal], E3p[cal], S3p[fit], E3p[fit], al, delta); ok, ch = claims2(S3p[te], ls, lw)
-                        res["G5pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al)
+                        res["G5pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
                     for mth, r in res.items():
                         out.append(dict(dataset=spec, judge=j, n=n, human_tie=float((y == 2).mean()),
                                         n_persona=(nsa if mth in ("T1", "T2") else None), method=mth, alpha=al, split=sp, **r))
@@ -310,5 +326,9 @@ def summarize(rows):
                         violation=(np.mean(nn("violated")) if risk else np.nan),
                         guarantee_success=(1 - np.mean(nn("violated")) if risk else np.nan),
                         significant_violation=(np.mean(nn("significant")) if risk else np.nan),
-                        empty_splits=np.mean([r["empty"] for r in R])))
+                        empty_splits=np.mean([r["empty"] for r in R]),
+                        tie_share_accepted=(sum(r["accepted_ties"] for r in R) / max(sum(r["accepted"] for r in R), 1)
+                                            if all(r.get("accepted_ties") is not None for r in R) else np.nan),
+                        tie_share_strict=(sum(r["strict_on_ties"] for r in R) / sc
+                                          if sc and all(r.get("strict_on_ties") is not None for r in R) else np.nan)))
     return out

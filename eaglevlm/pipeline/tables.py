@@ -92,12 +92,14 @@ def main():
         STEPS = cfg["methods"]
         K2 = [("acceptance", "输出率", f2), ("decisive", "判决率", f2), ("set_size", "平均集合大小", f2), ("risk", "实际错误率", f3),
               ("human_agreement", "人类一致率", f3), ("guarantee_success", "保证成功率", f2), ("significant_violation", "显著违约率", f2),
-              ("strict_error", "严格断言错误率", f3), ("empty_splits", "空划分", f2)]
+              ("strict_error", "严格断言错误率", f3), ("empty_splits", "空划分", f2),
+              ("tie_share_accepted", "被接受样本中的平局占比", f3), ("tie_share_strict", "严格断言中的平局占比", f3)]
         for al in cfg["alphas_certify"]:
             L += ["", f"## 表 2 α = {al}　风险控制（对应 SCOPE 表 3、Trust or Escalate 表 2）", "",
                   "部署在含平局的测试集上。输出率 = coverage；实际错误率 = SCOPE 的 empirical FDR；人类一致率 = ToE 的 empirical human agreement；"
                   "保证成功率 = ToE 的 guarantee success rate（测试错误率 ≤ α 的划分比例，目标 ≥ 0.9）；显著违约率 = 测试错误率显著高于 α（二项检验 p < .05）的划分比例；"
-                  "判决率 = 明确\"A 更好 / B 更好\"的比例；集合大小 1 = 明确、2 = 弱断言、3 = 弃权；空划分 = 全部弃权的划分比例。", "",
+                  "判决率 = 明确\"A 更好 / B 更好\"的比例；集合大小 1 = 明确、2 = 弱断言、3 = 弃权；空划分 = 全部弃权的划分比例；"
+                  "被接受样本中的平局占比、严格断言中的平局占比：与表 0 的人类平局占比对比（命题 1：严格断言落在平局上必错；空 = 该结果生成时还没有这一列）。", "",
                   "| 数据集 | 方法 | judge | " + " | ".join(h for _, h, _ in K2) + " |", "|" + "---|" * (3 + len(K2))]
             for s in sets:
                 first = True
@@ -108,13 +110,13 @@ def main():
                     if compact:
                         rs = [CERT[(s, j, st, al)] for j in js if j in GEN]
                         if rs:
-                            L.append(f"| {SN[s] if first else ''} | {nm} | ×{len(rs)} | " + " | ".join(mm([r[k] for r in rs], fm) for k, _, fm in K2) + " |"); first = False
+                            L.append(f"| {SN[s] if first else ''} | {nm} | ×{len(rs)} | " + " | ".join(mm([r.get(k, float("nan")) for r in rs], fm) for k, _, fm in K2) + " |"); first = False
                         continue
                     for k_, j in enumerate(js + ["mean"]):
                         rs = [CERT[(s, x, st, al)] for x in js if x in GEN] if j == "mean" else [CERT[(s, j, st, al)]]
                         if not rs:
                             continue
-                        vals = [mm([r[k] for r in rs], fm) if j == "mean" else fm(rs[0][k]) for k, _, fm in K2]
+                        vals = [mm([r.get(k, float("nan")) for r in rs], fm) if j == "mean" else fm(rs[0].get(k, float("nan"))) for k, _, fm in K2]
                         if j == "mean":
                             vals = [v.split(" (")[0] for v in vals]
                         L.append(f"| {SN[s] if first else ''} | {nm if k_ == 0 else ''} | {'均值（通用 VLM）' if j == 'mean' else JN[j]} | " + " | ".join(vals) + " |"); first = False

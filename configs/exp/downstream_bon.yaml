@@ -8,7 +8,7 @@ type: certify
 include: ../paths.bjserver.yaml
 datasets: [bon_scienceqa]
 judges: [qwen3vl8b, internvl35_8b, qwen35_9b]
-methods: [P1, P1s, P2, P3, P4, G0, G1, G2, G3, G4, G5, G2pw, G5pw]
+methods: [P1, P1s, P2, P3, P4, TC, G0, G1, G2, G3, G4, G5, G2pw, G5pw]
 alphas: [0.1, 0.2, 0.3]
 delta: 0.1
 split: {fit: 0.25, cal: 0.25}      # test = the rest (0.5), by question
