@@ -40,9 +40,11 @@ Equivalence: the pipeline code is a direct port of `scripts/chain.py`, `scripts/
 `scripts/conv_metrics.py`; on a check config (`configs/exp/certify_check.yaml`) all 70 compared cells are identical to the
 original scripts' outputs.
 
-Not yet migrated (still run as individual scripts in `scripts/`, results as markdown in `judgebench/paper_tables/`):
-mechanism analyses for section 2 (`phenomena.py`, `decompose.py`, `tie_anatomy.py`, `edit_bothbad.py`, `mondrian.py`),
-the resolution ablation (`res_ablation.py`), the LoRA evaluation (`lora_eval.py`) and the Best-of-N analysis.
+Section-2 / section-3 mechanism analyses and the resolution check are `type: script` experiments
+(`configs/exp/section2_*.yaml`, `section3_*.yaml`, `setup_resolution.yaml`): the runner calls the original script with the
+config's arguments, writes its markdown into the results directory, converts every table to CSV
+(`<output>__tNN.csv`, index in `<output>__tables.csv`) and records the script md5. Not yet configured: the Best-of-N
+analysis (its GPU stage is still running).
 
 ## Frozen raw outputs (snapshot)
 
