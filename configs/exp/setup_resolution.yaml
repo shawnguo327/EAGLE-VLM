@@ -12,4 +12,4 @@ jobs:
   - out: res_ablation_q25.md
     args: ["--judges", "qwen25vl7b", "--sets", "mllm_judge,mllm_judge_sp"]
   - out: res_ablation_32b.md
-    args: ["--judges", "qwen3vl32b", "--sets", "mllm_judge,mllm_judge_sp"]   # + genaibench once the 32B full-res GenAI-Bench run finishes
+    args: ["--judges", "qwen3vl32b", "--sets", "mllm_judge,mllm_judge_sp,genaibench"]
