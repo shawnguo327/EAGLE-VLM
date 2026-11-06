@@ -1,0 +1,17 @@
+# Improvement plan experiment 5 (visual dependence): the same source-level analysis on the WRONG-IMAGE prompts
+# (conditions bin_shuf / tri_shuf: each MLLM-as-a-Judge question shown with the image of another source of the same subset,
+# items/mllm_judge_sp_shufimg.jsonl).  Compare with the correct-image (certify_source) and image-removed (certify_blind) runs.
+name: certify_shufimg
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge_sp]
+judges: [qwen3vl8b, qwen35_9b]
+methods: [P1, P2, P4, TC, G2, G2s, G2b, SA, G5]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+min_coverage: 0.95
+cond_map: {bin: bin_shuf, tri: tri_shuf}
+pointwise: false

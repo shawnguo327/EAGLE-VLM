@@ -1,0 +1,16 @@
+# Improvement plan experiment 5: ablate_source on the WRONG-IMAGE prompts (bin_shuf / tri_shuf), MLLM-as-a-Judge score
+# pairs; compare tie AUROC, excluded labels and automation with the correct-image and image-removed runs.
+name: ablate_shufimg
+type: ablate
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge_sp]
+judges: [qwen3vl8b, qwen35_9b]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+bootstrap: 2000
+min_coverage: 0.95
+cond_map: {bin: bin_shuf, tri: tri_shuf}
+pointwise: false
