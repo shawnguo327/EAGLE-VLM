@@ -72,6 +72,24 @@ def main():
     rows = [f"{n} & " + " & ".join(f(mean(acc.get((d, m), []), "acceptance")) for m in ("U1s", "U1", "U1c", "U2", "U3"))
             + f" & {f(mean(acc.get((d, 'U2'), []), 'risk_source'), 3)} \\\\" for d, n in ds]
     write(a.out, "tab_selection.tex", head, rows, note)
+    rc = os.path.realpath(os.path.join(a.results, "router_controls", "latest", "summary.csv"))
+    if os.path.exists(rc):                                   # improvement plan experiment 4: router same-target controls
+        V = [("pairwise graded (G2)", "Graded"), ("control: routed, no pointwise", "Control"),
+             ("R1: routed, pairwise-only level head", "Pairwise-only"), ("router: cells", "Tie map"), ("router: logistic", "Logistic"),
+             ("R2: routed, unified augmented head", "Unified"), ("router: logistic, random gate", "Random gate"),
+             ("router: logistic, all routed", "All routed"), ("router: jury pointwise", "Jury")]
+        R = collections.defaultdict(list)
+        for r in csv.DictReader(open(rc)):
+            if r["judge"] in J6 and abs(float(r["alpha"]) - a.alpha) < 1e-9:
+                R[(r["dataset"], r["variant"], r["rule"])].append(r)
+        rds = [(d, n) for d, n in [("mllm_judge_sp", "MLLM-J (scores)"), ("genaibench", "GenAI-Bench"), ("imagerewarddb", "ImageRewardDB"),
+                                   ("agiqa3k", "AGIQA-3K")] if (d, V[0][0], "overall") in R]
+        head = ("\\begin{tabular}{ll" + "r" * len(V) + "}\n\\toprule\n & & " + " & ".join(lab for _, lab in V) + " \\\\\n\\midrule\n")
+        rows = []
+        for d, n in rds:
+            rows.append(f"{n} & Cov. & " + " & ".join(f(mean(R.get((d, v, 'overall'), []), "acceptance")) for v, _ in V) + " \\\\")
+            rows.append(f" & Abs.$^\\dagger$ & " + " & ".join(f(mean(R.get((d, v, 'overall+absolute'), []), "level_correct_share")) for v, _ in V) + " \\\\")
+        write(a.out, "tab_router_controls.tex", head, rows, f"router_controls/{os.path.basename(os.path.dirname(rc))}, alpha {a.alpha}")
     print("written to", a.out, "from", note)
 
 
