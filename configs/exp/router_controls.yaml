@@ -1,0 +1,16 @@
+# Review improvement plan (2026-11-06), experiment 4: router vs feature augmentation and same-target controls, at the
+# source level (as router_source).  Variants added by 'controls': R1 (absolute attributes from pairwise features only),
+# R2 (one augmented head for relative and absolute claims on the routed pairs), the logistic router with a random half
+# routed (same budget) and with every pair routed (twice the budget).  Rules: overall, every level, overall+absolute.
+name: router_controls
+type: router
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge_sp, genaibench, imagerewarddb, genai_arena/generation, genai_arena/edition, polaris, agiqa3k, mllm_judge, pickapic_u]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+controls: true
+rules: [overall, every level, overall+absolute]

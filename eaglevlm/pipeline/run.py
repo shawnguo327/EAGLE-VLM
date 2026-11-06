@@ -2,7 +2,7 @@
 
     python -m eaglevlm.pipeline.run configs/exp/certify_main.yaml [--workers 32] [--results-root DIR]
 
-Config keys (see configs/exp/*.yaml): name, type (certify | router | conventional), include (shared paths file),
+Config keys (see configs/exp/*.yaml): name, type (certify | router | conventional | ablate), include (shared paths file),
 paths.items / paths.outputs (ordered source directories), paths.results, datasets, judges, and the experiment settings
 (methods, alphas, delta, split, n_splits, seed, min_coverage).
 Output: <results>/<name>/<timestamp>/
@@ -16,7 +16,8 @@ and <results>/<name>/latest -> <timestamp>.  No model is run here: inputs are th
 import argparse, concurrent.futures as cf, csv, datetime, gzip, importlib, json, os, platform, socket, subprocess, sys
 import yaml
 
-TYPES = {"certify": "eaglevlm.pipeline.certify", "router": "eaglevlm.pipeline.router", "conventional": "eaglevlm.pipeline.conventional"}
+TYPES = {"certify": "eaglevlm.pipeline.certify", "router": "eaglevlm.pipeline.router", "conventional": "eaglevlm.pipeline.conventional",
+         "ablate": "eaglevlm.pipeline.ablate"}
 
 
 def load_cfg(path):

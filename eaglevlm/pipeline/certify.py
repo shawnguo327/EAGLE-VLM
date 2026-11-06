@@ -41,6 +41,9 @@ form a group; fit / calibration / test are split by source, and every LTT p-valu
 (Hoeffding-Bentkus on L_g = e_g - alpha a_g + alpha in [0, 1], with a_g / e_g the accepted / accepted-and-wrong fractions of
 source g), which stays valid under any dependence within a source.  Certified object: E[e_g] / E[a_g] <= alpha, the risk of
 a pair drawn uniformly from a uniformly drawn new source (summary column risk_source); the pair-level unit is the default.
+Optional cfg 'unit: source_pairs' (review improvement plan, experiment 1 diagnostic): split by source as above, but
+calibrate on ALL pairs of the calibration sources with the pair-level binomial - the protocol 'group split + pair binomial'
+that keeps the dependent pairs as if independent (no valid guarantee; shows whether changing the split alone suffices).
 Optional cfg 'group: meta.<key>' (e.g. meta.question_index for Best-of-N candidate pairs): the fit / calibration / test
 split is drawn over groups, so all pairs of a group fall in the same part; without it the split is over pairs, as in the
 original scripts.
@@ -336,7 +339,8 @@ def run(cfg, store, log):
                 log(f"skip {spec} {j}: {len(ids)} / {len(I)} items with both prompts in both orders"); continue
             n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids]); Ty = y == 2
             grp = cfg.get("group"); unit_src = cfg.get("unit", "pair") == "source"; unit_one = cfg.get("unit", "pair") == "source1"
-            if grp or unit_src or unit_one:
+            unit_sp = cfg.get("unit", "pair") == "source_pairs"
+            if grp or unit_src or unit_one or unit_sp:
                 keys = [str(I[i]["meta"][grp.split(".", 1)[1]]) if grp else source_key(I[i]) for i in ids]
                 ug, gi = np.unique(np.array(keys), return_inverse=True)
             else:
@@ -374,7 +378,7 @@ def run(cfg, store, log):
                     sa_fc = np.where(ps > .5, 0, 1); sa_et = np.where(y == 2, 1.0, (sa_fc != y).astype(float))
             rng = np.random.default_rng(cfg.get("seed", 0))
             for sp in range(cfg["n_splits"]):
-                if grp or unit_src or unit_one:
+                if grp or unit_src or unit_one or unit_sp:
                     rk = np.empty(len(ug), int); rk[rng.permutation(len(ug))] = np.arange(len(ug)); r = rk[gi]
                     g1, g2 = int(round(fit_f * len(ug))), int(round((fit_f + cal_f) * len(ug)))
                     fit, cal, te = np.where(r < g1)[0], np.where((r >= g1) & (r < g2))[0], np.where(r >= g2)[0]
@@ -387,7 +391,7 @@ def run(cfg, store, log):
                         a1, a2 = n // 4, n // 2                     # identical to the original scripts
                     fit, cal, te = pm[:a1], pm[a1:a2], pm[a2:]
                 calnt = cal[y[cal] != 2]
-                GC, GF, TG = (gi[cal], gi[fit], gi[te]) if unit_src else (None, None, gi[te] if unit_one else None)
+                GC, GF, TG = (gi[cal], gi[fit], gi[te]) if unit_src else (None, None, gi[te] if (unit_one or unit_sp) else None)
                 Prf = head(F_full, y, fit); S3, E3 = graded_scores(Prf, y)
                 need1 = "G1" in methods
                 if need1:

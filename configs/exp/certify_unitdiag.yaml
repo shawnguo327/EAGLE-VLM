@@ -1,0 +1,16 @@
+# Review improvement plan (2026-11-06), experiment 1 diagnostic: 'group split + pair binomial' - split by source exactly
+# as certify_source (same seed -> same source splits), but calibrate on ALL pairs of the calibration sources with the
+# pair-level binomial (dependent pairs treated as independent; no valid guarantee).  Compare with certify_main (pair
+# split + pair binomial) and certify_source (source split + one pair per source, exact).
+name: certify_unitdiag
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b]
+methods: [P1, P2, P4, G2, G2s, SA, G5]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source_pairs
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+min_coverage: 0.95

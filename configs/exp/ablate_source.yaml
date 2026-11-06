@@ -1,0 +1,16 @@
+# Review improvement plan (2026-11-06), experiments 2 / 3 / 7 on saved outputs (eaglevlm/pipeline/ablate.py):
+# signal x claim-family factorial (F00-F12), instance p(T) vs tie prior (B0-B4, selective tie calibration TCs), and
+# two-candidate selection with escalation certified on the selection loss (U1-U3).  Source-level unit as certify_source
+# (same seed -> the same splits); split 0 is the fixed holdout with paired source-bootstrap intervals.
+name: ablate_source
+type: ablate
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b, r1reward, llavacritic7b]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}      # of the sources; test = the remaining quarter (all its pairs)
+n_splits: 100
+bootstrap: 2000
+min_coverage: 0.95
