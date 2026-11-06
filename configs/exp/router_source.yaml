@@ -1,0 +1,13 @@
+# Review W5-W7: the redesigned router (graded claims kept, absolute-level claims only where no graded claim passes,
+# fit-only normalisation) certified at the source level: split by source, one random pair per calibration source,
+# calibration = half of the sources.
+name: router_source
+type: router
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge_sp, genaibench, imagerewarddb, genai_arena/generation, genai_arena/edition, polaris, agiqa3k, mllm_judge, pickapic_u]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100

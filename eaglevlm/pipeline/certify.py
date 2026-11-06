@@ -206,7 +206,8 @@ def persona(store, ds, j, ids):
 
 
 def pointwise_feats(store, ds, j, ids):
-    """[E_A, E_B, Var_A, Var_B, P(s<=3)_A, P(s<=3)_B, min E, max E, |E_A - E_B|] from the 1-9 score prompt, or None"""
+    """[E_A, E_B, Var_A, Var_B, P(s<=3)_A, P(s<=3)_B, min E, max E, |E_A - E_B|] from the 1-9 score prompt, or None;
+    NaN where a score is missing (imputed inside each split from the fit rows)"""
     from eaglevlm.pipeline.router import pointwise
     M = pointwise(store, ds, j, ids)
     if M is None:
@@ -358,7 +359,7 @@ def run(cfg, store, log):
             PWF = None
             if {"G2pw", "G5pw", "P4pw", "PWT", "PWL"} & set(methods):
                 pws = [pointwise_feats(store, ds, m, ids) for m in members]; pws = [x for x in pws if x is not None]
-                PWF = np.mean(pws, 0) if pws else None
+                PWF = np.nanmean(pws, 0) if pws else None     # may hold NaN (missing score): imputed per split from fit rows
             fc = np.where(p > .5, 0, 1); eb = (fc != y).astype(float); et = np.where(y == 2, 1.0, eb)
             fc1 = np.where(f1 > .5, 0, 1); et1 = np.where(y == 2, 1.0, (fc1 != y).astype(float))
             nsa = 0; QSA = None
@@ -397,7 +398,10 @@ def run(cfg, store, log):
                 if QSA is not None:
                     S3t, E3t = graded_scores(QSA, y)
                 if PWF is not None:
-                    Prp = head(np.c_[F_full, PWF], y, fit); S3p, E3p = graded_scores(Prp, y)
+                    PWFs = PWF.copy(); bad = np.isnan(PWFs)
+                    if bad.any():                   # review W6: imputation fixed on the fit rows only
+                        PWFs[bad] = np.nanmean(PWF[fit], 0)[np.where(bad)[1]]
+                    Prp = head(np.c_[F_full, PWFs], y, fit); S3p, E3p = graded_scores(Prp, y)
                 u, u1 = H(p), H(f1); zeros = np.zeros(len(te), int)
                 for al in AL:
                     res = {}
@@ -417,7 +421,7 @@ def run(cfg, store, log):
                         if key in methods:
                             res[key] = row(*conformal_sets(Prf, y, cal, te, al, score), al, Ty[te], TG)
                     if PWF is not None and {"PWT", "PWL"} & set(methods):
-                        dE = PWF[:, 0] - PWF[:, 1]; pw_fc = np.where(dE > 0, 0, 1)      # ties of the means -> B (rare)
+                        dE = PWFs[:, 0] - PWFs[:, 1]; pw_fc = np.where(dE > 0, 0, 1)    # ties of the means -> B (rare)
                         if "PWT" in methods:
                             if al == AL[0]:
                                 mg2 = np.abs(dE); oc2 = cal[np.argsort(mg2[cal], kind="stable")]; mc2 = mg2[oc2]

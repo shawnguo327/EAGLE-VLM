@@ -1,5 +1,8 @@
 """Router experiment ('router'): pairwise graded claims, with the pairwise-uncertain half routed to pointwise
-absolute-level claims ('both unacceptable', 'no clear winner').  Ported unchanged from scripts/router_v2.py.
+absolute-level claims ('both unacceptable', 'no clear winner').  2026-11-06 redesign after review (W6/W7): the graded
+claims (incl. the tie claim) are kept for every pair and absolute-level claims are added only where no graded claim
+passes; all feature normalisations are fit-only; optional unit: source1 (split by source, one pair per calibration
+source).  The pre-review version (scripts/router_v2.py port) is in git history (commit 442345a and earlier).
 Level labels from human absolute references:
   mllm_judge_sp / genaibench   human 1-5 (mean of raters): no clear winner = |gap| <= 1, both unacceptable = both <= 2
   imagerewarddb                human overall 1-7: |gap| <= 1, both <= 3
@@ -77,6 +80,8 @@ def level_labels(ds, I, ids):
 
 
 def pointwise(store, ds, j, ids):
+    """per pair [E_A, Var_A, P(<=3)_A, E_B, Var_B, P(<=3)_B] from the 1-9 score prompt; NaN where missing (imputed inside
+    each split from the fit rows only, review W6); None if more than 5% of the pairs miss a score"""
     R = store.load(ds, j, conds={"score"}); M = np.full((len(ids), 6), np.nan)
     for k, i in enumerate(ids):
         r = R.get(i, {})
@@ -88,18 +93,41 @@ def pointwise(store, ds, j, ids):
             M[k] = row
     if np.isnan(M).any(1).mean() > .05:
         return None
-    M[np.isnan(M).any(1)] = np.nanmean(M, 0)
     return M
 
 
-def lvl_feats(M, u):
-    rk = (rankdata(np.r_[M[:, 0], M[:, 3]]) / (2 * len(M))).reshape(2, -1).T
+def lvl_feats(M, u, fit):
+    """absolute-level features with every normalisation fixed on the FIT rows (review W6): missing scores imputed with
+    fit means, ranks = empirical CDF of the fit candidates' expected scores, so a pair's features depend only on its
+    own pointwise scores and the fit data (deployable with pointwise calls for the routed pairs only)"""
+    M = M.copy(); mu = np.nanmean(M[fit], 0); bad = np.isnan(M); M[bad] = mu[np.where(bad)[1]]
+    pool = np.sort(np.r_[M[fit, 0], M[fit, 3]])
+    rk = np.c_[np.searchsorted(pool, M[:, 0], side="right"), np.searchsorted(pool, M[:, 3], side="right")] / len(pool)
     lo, hi = rk.min(1), rk.max(1)
     return np.c_[rk, lo, hi, np.abs(rk[:, 0] - rk[:, 1]), M[:, [1, 4, 2, 5]], u]
 
 
+def splits(n, groups, cfg, rng):
+    """pair-level split (n//4, n//4, rest; as before) or, for unit: source1, a split by source with one random pair per
+    calibration source (review W5; same design as certify)"""
+    if cfg.get("unit", "pair") != "source1":
+        pm = rng.permutation(n); return pm[: n // 4], pm[n // 4: n // 2], pm[n // 2:]
+    fit_f, cal_f = cfg.get("split", {}).get("fit", .25), cfg.get("split", {}).get("cal", .25)
+    ug, gi = np.unique(groups, return_inverse=True)
+    rk = np.empty(len(ug), int); rk[rng.permutation(len(ug))] = np.arange(len(ug)); r = rk[gi]
+    g1, g2 = int(round(fit_f * len(ug))), int(round((fit_f + cal_f) * len(ug)))
+    fit, cal, te = np.where(r < g1)[0], np.where((r >= g1) & (r < g2))[0], np.where(r >= g2)[0]
+    pc = rng.permutation(cal); _, first = np.unique(gi[pc], return_index=True)
+    return fit, np.sort(pc[first]), te
+
+
 def run(cfg, store, log):
+    """Router (review W6/W7 design): every variant keeps the graded claims (strict, tie, weak) of G2 and adds the two
+    absolute-level claims only where no graded claim passes, on the routed (pairwise-uncertain) half; claim columns
+    [strict, tie, weak, both unacceptable, no clear winner]; one threshold, certified with the same fixed-sequence LTT.
+    All normalisations are fit-only; per-claim shares are reported, and the coverage gain over G2 on the same split."""
     from eaglevlm.pipeline.io import NO_REST
+    from eaglevlm.pipeline.certify import source_key
     AL = cfg["alphas"]; delta = cfg["delta"]; out = []
     for spec in cfg["datasets"]:
         ds, sub = (spec.split("/") + [None])[:2]
@@ -111,27 +139,30 @@ def run(cfg, store, log):
         if not PW:
             log(f"skip {spec}: no judge with pointwise scores"); continue
         ncw_all, bun_all = level_labels(ds, I, ids_all)
-        jury = np.mean([lvl_feats(PW[j], np.zeros(len(ids_all)))[:, :8] for j in PW], 0)
         for j in [j for j in PJ if j in PW]:
-            P = PJ[j]; keep = np.array([i in P for i in ids_all]); ids = [i for i in ids_all if i in P]
+            P = PJ[j]; keep = np.array([i in P for i in ids_all]); ids = [i for i in ids_all if i in P]; pos = np.where(keep)[0]
             n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids])
             p = np.array([P[i][0] for i in ids]); Q = np.array([P[i][1] for i in ids]); fl = np.array([P[i][2] for i in ids])
             u = H(p); Fp = np.c_[np.log(Q + 1e-9), u, np.abs(p - .5), fl]
             ncw, bun = ncw_all[keep], bun_all[keep]
-            Xl = lvl_feats(PW[j][keep], u); Xj = np.c_[jury[keep], u]
+            groups = np.array([source_key(I[i]) for i in ids])
             rng = np.random.default_rng(cfg.get("seed", 0))
             for sp in range(cfg["n_splits"]):
-                pm = rng.permutation(n); fit, cal, te = pm[: n // 4], pm[n // 4: n // 2], pm[n // 2:]
+                fit, cal, te = splits(n, groups, cfg, rng)
                 m = LogisticRegression(max_iter=5000).fit(Fp[fit], y[fit]); Pr = np.zeros((n, 3)); Pr[:, m.classes_] = m.predict_proba(Fp)
                 k = Pr[:, :2].argmax(1); o = 1 - k
                 s_str, s_tie, s_weak = 1 - Pr[np.arange(n), k], 1 - Pr[:, 2], Pr[np.arange(n), o]
                 e_str, e_tie, e_weak = (y != k), (y != 2), (y == o)
                 routed = u >= np.quantile(u[fit], .5); rf = fit[routed[fit]]
-                inf = np.full(n, np.inf)
-                variants = {"pairwise graded (G2)": (np.c_[s_str, s_tie, s_weak], np.c_[e_str, e_tie, e_weak])}
+                Xl = lvl_feats(PW[j][keep], u, fit)
+                fit_all = pos[fit]                                   # jury: each judge's features fixed on the same fit pairs
+                jury = np.mean([lvl_feats(PW[jj], np.zeros(len(ids_all)), fit_all)[:, :8] for jj in PW], 0)[keep]
+                Xj = np.c_[jury, u]; inf = np.full(n, np.inf)
+                G = np.c_[s_str, s_tie, s_weak]; GE = np.c_[e_str, e_tie, e_weak].astype(float)
+                variants = {"pairwise graded (G2)": (G, GE)}
                 est0 = [np.full(n, 1 - lab[rf].mean()) for lab in (bun, ncw)]
-                variants["control: routed, no pointwise"] = (np.c_[s_str, np.where(routed, est0[0], inf), np.where(routed, est0[1], inf), s_weak],
-                                                             np.c_[e_str, ~bun, ~ncw, e_weak].astype(float))
+                LE = np.c_[GE, ~bun, ~ncw].astype(float)
+                variants["control: routed, no pointwise"] = (np.c_[G, np.where(routed, est0[0], inf), np.where(routed, est0[1], inf)], LE)
                 for vname, X in (("router: cells", None), ("router: logistic", Xl), ("router: jury pointwise", Xj)):
                     est = []
                     for lab in (bun, ncw):
@@ -143,22 +174,29 @@ def run(cfg, store, log):
                             if lab[rf].all() or not lab[rf].any():
                                 est.append(np.full(n, np.inf)); continue
                             c = LogisticRegression(max_iter=5000).fit(X[rf], lab[rf]); est.append(1 - c.predict_proba(X)[:, 1])
-                    variants[vname] = (np.c_[s_str, np.where(routed, est[0], inf), np.where(routed, est[1], inf), s_weak],
-                                       np.c_[e_str, ~bun, ~ncw, e_weak].astype(float))
+                    variants[vname] = (np.c_[G, np.where(routed, est[0], inf), np.where(routed, est[1], inf)], LE)
+                base = {}
                 for vname, (S, E) in variants.items():
                     for al in AL:
                         for rule, joint in (("overall", False), ("every level", True)):
                             ok, ch = claims(S[te], fst(S[cal], E[cal], S[fit], E[fit], al, joint, delta))
-                            e = E[te][np.arange(len(te)), np.maximum(ch, 0)]; W = S.shape[1] - 1
-                            lv = ok & (ch > 0) & (ch < W); st = ok & (ch == 0); kk = int(ok.sum())
-                            risk = float(e[ok].mean()) if kk else np.nan
+                            e = E[te][np.arange(len(te)), np.maximum(ch, 0)]
+                            st, ti, wk, lv = ok & (ch == 0), ok & (ch == 1), ok & (ch == 2), ok & (ch >= 3)
+                            kk = int(ok.sum()); risk = float(e[ok].mean()) if kk else np.nan
+                            _, inv, cnt = np.unique(groups[te], return_inverse=True, return_counts=True)   # source-weighted test risk
+                            ag = np.bincount(inv, ok.astype(float)) / cnt; eg = np.bincount(inv, (e * ok).astype(float)) / cnt
+                            rsrc = float(eg.sum() / ag.sum()) if ag.sum() else np.nan
+                            if vname == "pairwise graded (G2)":
+                                base[(al, rule)] = float(ok.mean())
                             out.append(dict(dataset=spec, judge=j, n=n, human_tie=float((y == 2).mean()), no_clear_winner=float(ncw.mean()),
                                             both_unacceptable=float(bun.mean()), variant=vname, rule=rule, alpha=al, split=sp,
-                                            acceptance=float(ok.mean()), decisive=float(st.mean()), level=float(lv.mean()),
-                                            level_correct=float((1 - e[lv]).sum()), level_claims=int(lv.sum()), weak=float((ok & (ch == W)).mean()),
-                                            accepted=kk, errors=int(e[ok].sum()) if kk else 0, risk=risk,
+                                            acceptance=float(ok.mean()), decisive=float(st.mean()), tie_claims=float(ti.mean()),
+                                            weak=float(wk.mean()), level=float(lv.mean()), level_correct=float((1 - e[lv]).sum()),
+                                            level_claims=int(lv.sum()), accepted=kk, errors=int(e[ok].sum()) if kk else 0, risk=risk,
                                             violated=(float(risk > al) if kk else np.nan),
                                             significant=(float(binom.sf(int(e[ok].sum()) - 1, kk, al) < .05) if kk else np.nan),
+                                            gain_vs_g2=float(ok.mean()) - base.get((al, rule), np.nan),
+                                            risk_source=rsrc, violated_source=(float(rsrc > al) if kk else np.nan),
                                             routed=(float(routed[te].mean()) if vname != "pairwise graded (G2)" else 0.0)))
             log(f"done {spec} {j} (n={n})")
     return out
@@ -173,9 +211,17 @@ def summarize(rows):
         risk = [r["risk"] for r in R if r["risk"] == r["risk"]]; vi = [r["violated"] for r in R if r["violated"] == r["violated"]]
         sg = [r["significant"] for r in R if r["significant"] == r["significant"]]; lc = sum(r["level_claims"] for r in R)
         dec = np.mean([r["decisive"] for r in R]); lev = np.mean([r["level"] for r in R])
+        ka = sum(r["accepted"] for r in R)
         out.append(dict(dataset=ds, judge=j, variant=v, rule=rule, alpha=al, n=R[0]["n"], human_tie=R[0]["human_tie"],
+                        tie_claims=np.mean([r.get("tie_claims", np.nan) for r in R]),
+                        gain_vs_g2=np.mean([r.get("gain_vs_g2", np.nan) for r in R]),
+                        pooled_risk=(sum(r["errors"] for r in R) / ka if ka else np.nan),
+                        splits_answered=sum(r["accepted"] > 0 for r in R),
+                        guarantee_success_all=float(1 - np.mean([r["violated"] == 1.0 for r in R])),
+                        risk_source=(np.nanmean([r.get("risk_source", np.nan) for r in R]) if any(r.get("risk_source", np.nan) == r.get("risk_source", np.nan) for r in R) else np.nan),
+                        guarantee_success_source=float(1 - np.mean([r.get("violated_source") == 1.0 for r in R])),
                         no_clear_winner=R[0]["no_clear_winner"], both_unacceptable=R[0]["both_unacceptable"], splits=len(R),
-                        acceptance=np.mean([r["acceptance"] for r in R]), informative=dec + lev, decisive=dec, level=lev,
+                        acceptance=np.mean([r["acceptance"] for r in R]), informative=dec + lev, decisive=dec, level=lev,  # informative = strict + absolute-level (tie claims reported separately)
                         level_precision=(sum(r["level_correct"] for r in R) / lc if lc else np.nan), weak=np.mean([r["weak"] for r in R]),
                         risk=(np.mean(risk) if risk else np.nan), human_agreement=(1 - np.mean(risk) if risk else np.nan),
                         violation=(np.mean(vi) if vi else np.nan), guarantee_success=(1 - np.mean(vi) if vi else np.nan),
