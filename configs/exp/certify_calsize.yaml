@@ -1,0 +1,12 @@
+# Calibration-size ablation: twice the calibration data (fit 25% / cal 50% / test 25%)
+name: certify_calsize
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, mtbench_human, arena55k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
+methods: [G2, G3]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+split: {fit: 0.25, cal: 0.50}
+n_splits: 100
+min_coverage: 0.95

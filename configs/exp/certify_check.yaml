@@ -1,0 +1,12 @@
+# quick equivalence check against the original scripts (chain.py / c3_diag.py)
+name: certify_check
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mtbench_human, genai_arena/edition]
+judges: [qwen3vl8b, internvl35_8b]
+methods: [P1, P2, P4, T1, G2, G3, G5]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+split: {fit: 0.25, cal: 0.25}
+n_splits: 100
+min_coverage: 0.95

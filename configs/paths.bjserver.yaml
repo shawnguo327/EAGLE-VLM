@@ -1,0 +1,16 @@
+# Data locations on bjserver.  Order matters: for duplicate judge records the first source wins (same rule as the original
+# analysis scripts).  Raw judge outputs are produced by eaglevlm/judge_bench.py via pack/ctl.py (pack/config*.yaml) on
+# bjserver and by the A100 runners (scripts/a100/), synced into judgebench_local/a100_sync.
+paths:
+  items:
+    - /media/shawn/C/papers/VLM/judgebench/items
+    - /media/shawn/C/papers/VLM/judgebench_local/items
+  outputs:
+    - /media/shawn/C/papers/VLM/judgebench/results
+    - /media/shawn/C/papers/VLM/judgebench/results_A
+    - /media/shawn/C/papers/VLM/judgebench_local/runs/*/raw
+    - /media/shawn/C/papers/VLM/judgebench_local/a100_sync/*/*
+    - /media/shawn/C/papers/VLM/judgebench_local/a100_sync/*
+  results: /media/shawn/C/papers/VLM/results
+workers: 48
+seed: 0

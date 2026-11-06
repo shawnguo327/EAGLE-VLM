@@ -1,0 +1,9 @@
+# Table 4: pairwise -> pointwise absolute-level router, with the no-pointwise control
+name: router_main
+type: router
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge_sp, genaibench, imagerewarddb, genai_arena/generation, genai_arena/edition, polaris, agiqa3k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+n_splits: 100

@@ -1,0 +1,7 @@
+# Table 1: accuracy, calibration (ECE) and error detection (AUROC / AUPRC / AURC), ties dropped vs ties kept
+name: conventional
+type: conventional
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k, polaris, agiqa3k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b, r1reward, llavacritic7b]
+min_coverage: 0.95
