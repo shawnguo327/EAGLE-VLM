@@ -1,0 +1,2 @@
+{"model": {"InternVL2_5-8B-BoN-8-local": {"class": "InternVLChat", "model_path": "/media/vipuser/Data1/models/InternVL2_5-8B", "version": "V2.0", "best_of_n": 8, "reward_model_path": "/media/vipuser/Data1/models/VisualPRM-8B"}},
+ "data": {"MMMU_DEV_VAL": {"class": "MMMUDataset", "dataset": "MMMU_DEV_VAL"}}}
