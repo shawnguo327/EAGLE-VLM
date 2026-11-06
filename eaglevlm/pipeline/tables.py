@@ -39,12 +39,21 @@ def main():
     cfg = yaml.safe_load(open(sys.argv[1])); res = cfg["results"]; JN = cfg["judge_names"]; SN = cfg["dataset_names"]
     GEN = cfg["general_judges"]; META = cfg.get("datasets", {})
     out = os.path.join(res, "tables", datetime.datetime.now().strftime("%Y%m%d_%H%M%S")); os.makedirs(out)
-    src = {k: os.path.realpath(os.path.join(res, v, "latest", "summary.csv")) for k, v in cfg["experiments"].items()}
+    src = {}
+    for k, v in cfg["experiments"].items():                 # a value may list several experiments (rows are merged)
+        for kk, name in enumerate(v if isinstance(v, list) else [v]):
+            pth = os.path.realpath(os.path.join(res, name, "latest", "summary.csv"))
+            if os.path.exists(pth):
+                src[k if kk == 0 else f"{k}_{kk}"] = pth
+            else:
+                print(f"skip {name}: no summary.csv yet")
     with open(f"{out}/sources.csv", "w", newline="") as f:
         w = csv.writer(f); w.writerow(["table_input", "summary_csv"]); [w.writerow([k, v]) for k, v in src.items()]
     CONV = {(r["dataset"], r["judge"]): r for r in read(src["conventional"])} if "conventional" in src else {}
     CERT = {(r["dataset"], r["judge"], r["method"], r["alpha"]): r for r in read(src["certify"])} if "certify" in src else {}
-    ROUT = {(r["dataset"], r["judge"], r["variant"], r["rule"], r["alpha"]): r for r in read(src["router"])} if "router" in src else {}
+    ROUT = {}
+    for k in [k for k in src if k == "router" or k.startswith("router_")]:
+        ROUT.update({(r["dataset"], r["judge"], r["variant"], r["rule"], r["alpha"]): r for r in read(src[k])})
     judges = cfg["judges"]; sets = cfg["dataset_order"]
     for compact in (False, True):
         L = ["# 论文式结果表（自动生成）", "",
@@ -136,6 +145,13 @@ def main():
                             L.append(f"| {SN[s] if first else ''} | {rn if first else ''} | {vn if k_ == 0 else ''} | {'均值（通用 VLM）' if j == 'mean' else JN[j]} | " + " | ".join(vals) + " |")
                             first = False
         open(f"{out}/tables_{'compact' if compact else 'full'}.md", "w").write("\n".join(L) + "\n")
+    if cfg.get("latex_dir"):
+        from eaglevlm.pipeline import latex
+        cfg["_stamp"] = os.path.basename(out)
+        print("latex:", latex.write(cfg, CONV, CERT, ROUT, cfg["latex_dir"]))
+        import shutil
+        for f in os.listdir(cfg["latex_dir"]):
+            shutil.copy(os.path.join(cfg["latex_dir"], f), out)
     link = os.path.join(res, "tables", "latest")
     if os.path.islink(link):
         os.remove(link)

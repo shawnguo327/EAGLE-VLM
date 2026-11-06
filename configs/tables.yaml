@@ -1,12 +1,12 @@
 # Paper tables: built only from the summary CSVs of these experiments (results/<name>/latest/summary.csv)
 results: /media/shawn/C/papers/VLM/results
-experiments: {conventional: conventional, certify: certify_main, router: router_main}
+experiments: {conventional: conventional, certify: certify_main, router: [router_main, router_tielabel]}
 judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b, r1reward, llavacritic7b]
 general_judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b]
 judge_names: {qwen3vl8b: Qwen3-VL-8B, internvl35_8b: InternVL3.5-8B, qwen35_9b: Qwen3.5-9B, qwen25vl7b: Qwen2.5-VL-7B,
               qwen3vl32b: Qwen3-VL-32B, internvl35_38b: InternVL3.5-38B, r1reward: R1-Reward*, llavacritic7b: LLaVA-Critic-7B*}
 dataset_order: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k, polaris, agiqa3k]
-router_datasets: [mllm_judge_sp, genaibench, imagerewarddb, genai_arena/generation, genai_arena/edition, polaris, agiqa3k]
+router_datasets: [mllm_judge_sp, genaibench, imagerewarddb, genai_arena/generation, genai_arena/edition, polaris, agiqa3k, mllm_judge, pickapic_u]
 dataset_names:
   mllm_judge: MLLM-as-a-Judge (pairs)
   mllm_judge_sp: MLLM-as-a-Judge (score pairs)
@@ -53,3 +53,43 @@ router_variants:
   - ["router: jury pointwise", 路由：多 judge 单项分数平均]
 alphas_certify: [0.2, 0.1, 0.3]
 alphas_router: [0.2, 0.1, 0.3]
+
+# ---- LaTeX tables for the paper (written to latex_dir and copied into the tables output folder)
+latex_dir: /media/shawn/C/papers/VLM/overleaf/tables_auto
+latex_alpha: 0.2
+latex_names:
+  mllm_judge: MLLM-J (pairs)
+  mllm_judge_sp: MLLM-J (scores)
+  genaibench: GenAI-Bench
+  genai_arena/generation: GenAI-Arena gen.
+  genai_arena/edition: GenAI-Arena edit
+  pickapic_u: Pick-a-Pic
+  imagerewarddb: ImageRewardDB
+  mtbench_human: MT-Bench (text)
+  arena55k: Chatbot Arena (text)
+  polaris: Polaris
+  agiqa3k: AGIQA-3K
+latex_tasks:
+  mllm_judge: VQA answers
+  mllm_judge_sp: VQA answers
+  genaibench: text-to-image
+  genai_arena/generation: text-to-image
+  genai_arena/edition: image editing
+  pickapic_u: text-to-image
+  imagerewarddb: text-to-image
+  mtbench_human: chat (text)
+  arena55k: chat (text)
+  polaris: captioning
+  agiqa3k: text-to-image
+latex_main_sets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, mtbench_human]
+latex_methods:
+  - [P1, 'SCOPE~\cite{badshah2026scope}']
+  - [T1, 'ToE~\cite{jung2024trust}']
+  - [P2, SCOPE + ties]
+  - [P4, Strict + all]
+  - [G2, '\textbf{Ours}']
+  - [G5, Ours (strict-safe)]
+latex_router_variants:
+  - ["pairwise graded (G2)", Graded only]
+  - ["control: routed, no pointwise", Control]
+  - ["router: cells", '\textbf{Router}']
