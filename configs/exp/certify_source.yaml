@@ -1,0 +1,16 @@
+# Review W5: source-level certification.  Pairs sharing a source (same question / prompt and context images) are
+# dependent, so fit / calibration / test are split by source and calibration uses ONE random pair per calibration source
+# (independent units -> the binomial LTT is exact for the risk of a pair drawn uniformly from a uniformly drawn new
+# source; summary column risk_source / guarantee_success_source).  Calibration gets half of the sources.
+name: certify_source
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b, r1reward, llavacritic7b]
+methods: [P1, P2, P3, P4, TC, CPL, SL, SA, T1, T3, G0, G2, G2s, G2b, G3, G4, G5]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}      # of the sources; test = the remaining quarter (all its pairs)
+n_splits: 100
+min_coverage: 0.95

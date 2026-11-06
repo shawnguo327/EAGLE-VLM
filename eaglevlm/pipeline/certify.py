@@ -33,6 +33,14 @@ Methods:
        orders) turned into graded claims and certified with the same LTT (on benchmarks where the personas were run)
   judge "jury:<m1>+<m2>+...": the calibrator sees the features of all member judges (pairs judged by every member);
   P-type baselines use the members' averaged probabilities; T methods are not defined for a jury
+Optional cfg 'unit: source1' (review W5, main source-level variant): split by source as below, and calibrate on ONE pair
+drawn at random from every calibration source, so the calibration pairs are independent and the ordinary binomial LTT is
+exact for the risk of a pair drawn uniformly from a uniformly drawn new source (every method, incl. G3-G5, unchanged).
+Optional cfg 'unit: source' (review W5): pairs that share a source (same question / prompt and the same context images)
+form a group; fit / calibration / test are split by source, and every LTT p-value is computed from per-source losses
+(Hoeffding-Bentkus on L_g = e_g - alpha a_g + alpha in [0, 1], with a_g / e_g the accepted / accepted-and-wrong fractions of
+source g), which stays valid under any dependence within a source.  Certified object: E[e_g] / E[a_g] <= alpha, the risk of
+a pair drawn uniformly from a uniformly drawn new source (summary column risk_source); the pair-level unit is the default.
 Optional cfg 'group: meta.<key>' (e.g. meta.question_index for Best-of-N candidate pairs): the fit / calibration / test
 split is drawn over groups, so all pairs of a group fall in the same part; without it the split is over pairs, as in the
 original scripts.
@@ -65,19 +73,41 @@ def claims(S, lam):
     ok = S <= lam; anyok = ok.any(1); return anyok, np.where(anyok, ok.argmax(1), -1)
 
 
-def _pval(S, E, lam, al):
+def hb_pvalue(mu, m, R):
+    """Hoeffding-Bentkus p-value for H0: E[L] >= R from m independent losses in [0, 1] with mean mu (Bates et al., 2021)"""
+    if m == 0 or mu >= R:
+        return 1.0
+    h1 = (mu * np.log(mu / R) if mu > 0 else 0.0) + (1 - mu) * np.log((1 - mu) / (1 - R))
+    return float(min(1.0, np.exp(-m * h1), np.e * binom.cdf(np.ceil(m * mu), m, R)))
+
+
+def group_pvalue(acc, err, g, al):
+    """p-value of 'source-level selective risk > alpha' from per-source accepted / error fractions (any within-source
+    dependence allowed): L_g = e_g - alpha a_g + alpha in [0, 1], H0: E[L] >= alpha"""
+    _, inv, cnt = np.unique(g, return_inverse=True, return_counts=True)
+    ag = np.bincount(inv, acc.astype(float)) / cnt; eg = np.bincount(inv, err * acc) / cnt
+    if ag.sum() == 0:
+        return 1.0
+    return hb_pvalue(float((eg - al * ag + al).mean()), len(cnt), al)
+
+
+def _pval(S, E, lam, al, g=None):
     acc, ch = claims(S, lam); n = int(acc.sum())
     if n == 0:
         return 1.0
-    return binom.cdf(int(E[np.arange(len(E)), np.maximum(ch, 0)][acc].sum()), n, al)
+    e = E[np.arange(len(E)), np.maximum(ch, 0)]
+    if g is not None:
+        return group_pvalue(acc, e, g, al)
+    return binom.cdf(int(e[acc].sum()), n, al)
 
 
-def ltt(S, E, al, delta, Sf=None, Ef=None, grid=GRID):
-    """fixed-sequence Learn-then-Test; start = grid value with the smallest p-value on the FIT split"""
-    s0 = int(np.argmin([_pval(Sf, Ef, lam, al) for lam in grid])) if Sf is not None else 0
+def ltt(S, E, al, delta, Sf=None, Ef=None, grid=GRID, gc=None, gf=None):
+    """fixed-sequence Learn-then-Test; start = grid value with the smallest p-value on the FIT split.  gc / gf: source ids
+    of the calibration / fit rows for the source-level unit (None = pairs)"""
+    s0 = int(np.argmin([_pval(Sf, Ef, lam, al, gf) for lam in grid])) if Sf is not None else 0
     best = -np.inf
     for lam in grid[s0:]:
-        if _pval(S, E, lam, al) <= delta:
+        if _pval(S, E, lam, al, gc) <= delta:
             best = lam
         else:
             break
@@ -196,8 +226,9 @@ def graded_scores(Pr, y):
     return S, E
 
 
-def row(ok, ch, err, al, tie=None):
-    """claim types ch: 0 strict {k}; 1 tie {T}; 2 weak {k,T}; 3 'not a tie' {A,B} (only from generic set predictors)"""
+def row(ok, ch, err, al, tie=None, g=None):
+    """claim types ch: 0 strict {k}; 1 tie {T}; 2 weak {k,T}; 3 'not a tie' {A,B} (only from generic set predictors).
+    g: source ids of the test rows (source-level unit) -> source-weighted test risk sum_g e_g / sum_g a_g"""
     size = np.where(~ok, 3, np.where(ch >= 2, 2, 1)); st = ok & (ch == 0); k = int(ok.sum()); e = int(err[ok].sum()) if k else 0
     risk = e / k if k else np.nan
     d = dict(acceptance=float(ok.mean()), set_size=float(size.mean()), decisive=float(st.mean()), strict_errors=int(err[st].sum()),
@@ -205,9 +236,19 @@ def row(ok, ch, err, al, tie=None):
              significant=(float(binom.sf(e - 1, k, al) < .05) if k else np.nan), empty=float(not ok.any()),
              tie_claims=float((ok & (ch == 1)).mean()), weak_claims=float((ok & (ch == 2)).mean()),
              nondirectional=float((ok & (ch == 3)).mean()))
+    if g is not None:
+        _, inv, cnt = np.unique(g, return_inverse=True, return_counts=True)
+        ag = np.bincount(inv, ok.astype(float)) / cnt; eg = np.bincount(inv, (err * ok).astype(float)) / cnt
+        rs = float(eg.sum() / ag.sum()) if ag.sum() else np.nan
+        d.update(risk_source=rs, sources=int(len(cnt)), violated_source=(float(rs > al) if ag.sum() else np.nan))
     if tie is not None:                     # human ties among the accepted pairs / among the strict claims (Proposition 1)
         d.update(accepted_ties=int((ok & tie).sum()), strict_on_ties=int((st & tie).sum()))
     return d
+
+
+def source_key(item):
+    """pairs sharing a source: the same question / prompt and the same context images (review W5)"""
+    return item["question"] + "\x1f" + "\x1f".join(item["context"])
 
 
 def make_sets(Pr, q, kind):
@@ -229,11 +270,13 @@ def set_claims(Pr, y, q, kind):
     return ok, ch, (~S[np.arange(len(y)), y]).astype(float)
 
 
-def ltt_sets(Pr, y, cal, fit, al, delta, kind, grid=GRID):
+def ltt_sets(Pr, y, cal, fit, al, delta, kind, grid=GRID, gi=None):
     """the same fixed-sequence LTT as ltt() over the set parameter q, walking from conservative to informative policies:
     here a larger q means larger sets (more abstention), so the sequence runs from the fit-chosen start towards smaller q"""
     def pv(idx, q):
         ok, _, e = set_claims(Pr[idx], y[idx], q, kind); n = int(ok.sum())
+        if gi is not None:
+            return group_pvalue(ok, e, gi[idx], al) if n else 1.0
         return float(binom.cdf(int(e[ok].sum()), n, al)) if n else 1.0
     grid = grid[::-1]
     s0 = int(np.argmin([pv(fit, q) for q in grid])); best = -np.inf
@@ -291,9 +334,12 @@ def run(cfg, store, log):
             if len(ids) < 200 or len(ids) < cfg.get("min_coverage", .95) * len(I):
                 log(f"skip {spec} {j}: {len(ids)} / {len(I)} items with both prompts in both orders"); continue
             n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids]); Ty = y == 2
-            grp = cfg.get("group")
-            if grp:
-                ug, gi = np.unique(np.array([str(I[i]["meta"][grp.split(".", 1)[1]]) for i in ids]), return_inverse=True)
+            grp = cfg.get("group"); unit_src = cfg.get("unit", "pair") == "source"; unit_one = cfg.get("unit", "pair") == "source1"
+            if grp or unit_src or unit_one:
+                keys = [str(I[i]["meta"][grp.split(".", 1)[1]]) if grp else source_key(I[i]) for i in ids]
+                ug, gi = np.unique(np.array(keys), return_inverse=True)
+            else:
+                gi = None
             parts_full, parts_one, parts_bin, P_, Q_, F1_, Q1_, C_ = [], [], [], [], [], [], [], []
             for m in members:
                 Sg = SG[m]
@@ -327,10 +373,12 @@ def run(cfg, store, log):
                     sa_fc = np.where(ps > .5, 0, 1); sa_et = np.where(y == 2, 1.0, (sa_fc != y).astype(float))
             rng = np.random.default_rng(cfg.get("seed", 0))
             for sp in range(cfg["n_splits"]):
-                if grp:
+                if grp or unit_src or unit_one:
                     rk = np.empty(len(ug), int); rk[rng.permutation(len(ug))] = np.arange(len(ug)); r = rk[gi]
                     g1, g2 = int(round(fit_f * len(ug))), int(round((fit_f + cal_f) * len(ug)))
                     fit, cal, te = np.where(r < g1)[0], np.where((r >= g1) & (r < g2))[0], np.where(r >= g2)[0]
+                    if unit_one:                # one random pair per calibration source -> independent calibration units
+                        pc = rng.permutation(cal); _, first = np.unique(gi[pc], return_index=True); cal = np.sort(pc[first])
                 else:
                     pm = rng.permutation(n)
                     a1, a2 = int(round(fit_f * n)), int(round((fit_f + cal_f) * n))
@@ -338,6 +386,7 @@ def run(cfg, store, log):
                         a1, a2 = n // 4, n // 2                     # identical to the original scripts
                     fit, cal, te = pm[:a1], pm[a1:a2], pm[a2:]
                 calnt = cal[y[cal] != 2]
+                GC, GF, TG = (gi[cal], gi[fit], gi[te]) if unit_src else (None, None, gi[te] if unit_one else None)
                 Prf = head(F_full, y, fit); S3, E3 = graded_scores(Prf, y)
                 need1 = "G1" in methods
                 if need1:
@@ -353,20 +402,20 @@ def run(cfg, store, log):
                 for al in AL:
                     res = {}
                     if "P1" in methods:
-                        res["P1"] = row(u[te] <= thr(u[calnt], eb[calnt], al), zeros, et[te], al, Ty[te])
+                        res["P1"] = row(u[te] <= thr(u[calnt], eb[calnt], al), zeros, et[te], al, Ty[te], TG)
                     if "P1s" in methods:
-                        res["P1s"] = row(u1[te] <= thr(u1[calnt], (fc1 != y)[calnt].astype(float), al), zeros, et1[te], al, Ty[te])
+                        res["P1s"] = row(u1[te] <= thr(u1[calnt], (fc1 != y)[calnt].astype(float), al), zeros, et1[te], al, Ty[te], TG)
                     if "P2" in methods:
-                        res["P2"] = row(u[te] <= thr(u[cal], et[cal], al), zeros, et[te], al, Ty[te])
+                        res["P2"] = row(u[te] <= thr(u[cal], et[cal], al), zeros, et[te], al, Ty[te], TG)
                     if "P3" in methods:
-                        lam = ltt(u[cal][:, None], et[cal][:, None], al, delta, u[fit][:, None], et[fit][:, None])
-                        res["P3"] = row(u[te] <= lam, zeros, et[te], al, Ty[te])
+                        lam = ltt(u[cal][:, None], et[cal][:, None], al, delta, u[fit][:, None], et[fit][:, None], gc=GC, gf=GF)
+                        res["P3"] = row(u[te] <= lam, zeros, et[te], al, Ty[te], TG)
                     if "P4" in methods:
-                        lam = ltt(S3[cal][:, [0]], E3[cal][:, [0]], al, delta, S3[fit][:, [0]], E3[fit][:, [0]])
-                        res["P4"] = row(S3[te, 0] <= lam, zeros, E3[te, 0], al, Ty[te])
+                        lam = ltt(S3[cal][:, [0]], E3[cal][:, [0]], al, delta, S3[fit][:, [0]], E3[fit][:, [0]], gc=GC, gf=GF)
+                        res["P4"] = row(S3[te, 0] <= lam, zeros, E3[te, 0], al, Ty[te], TG)
                     for key, score in (("CPL", "lac"), ("CPA", "aps")):
                         if key in methods:
-                            res[key] = row(*conformal_sets(Prf, y, cal, te, al, score), al, Ty[te])
+                            res[key] = row(*conformal_sets(Prf, y, cal, te, al, score), al, Ty[te], TG)
                     if PWF is not None and {"PWT", "PWL"} & set(methods):
                         dE = PWF[:, 0] - PWF[:, 1]; pw_fc = np.where(dE > 0, 0, 1)      # ties of the means -> B (rare)
                         if "PWT" in methods:
@@ -377,11 +426,11 @@ def run(cfg, store, log):
                                 eps2 = mc2[last2][int(np.argmax(acc2))] if acc2.max() > tot2 else -1.0
                                 pwt_ch = np.where(mg2[te] <= eps2, 1, 0)
                                 pwt_err = np.where(pwt_ch == 1, y[te] != 2, pw_fc[te] != y[te]).astype(float)
-                            res["PWT"] = row(np.ones(len(te), bool), pwt_ch, pwt_err, al, Ty[te])
+                            res["PWT"] = row(np.ones(len(te), bool), pwt_ch, pwt_err, al, Ty[te], TG)
                         if "PWL" in methods:
                             sp = 1 - np.minimum(np.abs(dE), 8) / 8; ep = np.where(y == 2, 1.0, (pw_fc != y).astype(float))
-                            lam = ltt(sp[cal][:, None], ep[cal][:, None], al, delta, sp[fit][:, None], ep[fit][:, None])
-                            res["PWL"] = row(sp[te] <= lam, zeros, ep[te], al, Ty[te])
+                            lam = ltt(sp[cal][:, None], ep[cal][:, None], al, delta, sp[fit][:, None], ep[fit][:, None], gc=GC, gf=GF)
+                            res["PWL"] = row(sp[te] <= lam, zeros, ep[te], al, Ty[te], TG)
                     if "TC" in methods:     # tie calibration (Deutsch et al., EMNLP 2023): 'tie' if |p - .5| <= eps, else the
                         if al == AL[0]:     # forced-choice winner; eps maximises 3-way accuracy on the calibration split.
                             mg = np.abs(p - .5); oc = cal[np.argsort(mg[cal], kind="stable")]; mc = mg[oc]   # every pair gets a
@@ -390,7 +439,7 @@ def run(cfg, store, log):
                             eps = mc[last][int(np.argmax(acc))] if acc.max() > tot else -1.0
                             tc_ch = np.where(mg[te] <= eps, 1, 0)
                             tc_err = np.where(tc_ch == 1, y[te] != 2, fc[te] != y[te]).astype(float)
-                        res["TC"] = row(np.ones(len(te), bool), tc_ch, tc_err, al, Ty[te])
+                        res["TC"] = row(np.ones(len(te), bool), tc_ch, tc_err, al, Ty[te], TG)
                     if nsa >= 200:
                         ct, tt, ft = cal[has[cal]], te[has[te]], fit[has[fit]]
                         ctn = ct[y[ct] != 2]
@@ -399,43 +448,43 @@ def run(cfg, store, log):
                                 continue
                             ec = np.where(y[cc] == 2, 1.0, (sa_fc[cc] != y[cc]).astype(float))
                             ef = np.where(y[ft] == 2, 1.0, (sa_fc[ft] != y[ft]).astype(float)) if key == "T2" else (sa_fc[ft] != y[ft]).astype(float)
-                            lam = ltt(sa_s[cc][:, None], ec[:, None], al, delta, sa_s[ft][:, None], ef[:, None])
-                            res[key] = row(sa_s[tt] <= lam, np.zeros(len(tt), int), sa_et[tt], al, Ty[tt])
+                            lam = ltt(sa_s[cc][:, None], ec[:, None], al, delta, sa_s[ft][:, None], ef[:, None], gc=(gi[cc] if unit_src else None), gf=(gi[ft] if unit_src else None))
+                            res[key] = row(sa_s[tt] <= lam, np.zeros(len(tt), int), sa_et[tt], al, Ty[tt], (gi[tt] if unit_src else None))
                     for key, S, E in (("G0", S0, E0), ("G1", S31 if need1 else None, E31 if need1 else None), ("G2", S3, E3)):
                         if key in methods:
-                            ok, ch = claims(S[te], ltt(S[cal], E[cal], al, delta, S[fit], E[fit]))
-                            res[key] = row(ok, ch, E[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                            ok, ch = claims(S[te], ltt(S[cal], E[cal], al, delta, S[fit], E[fit], gc=GC, gf=GF))
+                            res[key] = row(ok, ch, E[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
                     for key, S, E in (("G2b", S3b if "G2b" in methods else None, E3b if "G2b" in methods else None),
                                       ("T3", S3t if QSA is not None else None, E3t if QSA is not None else None)):
                         if key in methods and S is not None:
-                            ok, ch = claims(S[te], ltt(S[cal], E[cal], al, delta, S[fit], E[fit]))
-                            res[key] = row(ok, ch, E[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                            ok, ch = claims(S[te], ltt(S[cal], E[cal], al, delta, S[fit], E[fit], gc=GC, gf=GF))
+                            res[key] = row(ok, ch, E[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
                     if "G2s" in methods:            # singletons only: drop the weak level
                         S2, E2 = S3[:, :2], E3[:, :2]
-                        ok, ch = claims(S2[te], ltt(S2[cal], E2[cal], al, delta, S2[fit], E2[fit]))
-                        res["G2s"] = row(ok, ch, E2[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                        ok, ch = claims(S2[te], ltt(S2[cal], E2[cal], al, delta, S2[fit], E2[fit], gc=GC, gf=GF))
+                        res["G2s"] = row(ok, ch, E2[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
                     for key, kind in (("SL", "lac"), ("SA", "aps")):
                         if key in methods:
-                            q = ltt_sets(Prf, y, cal, fit, al, delta, kind)
-                            res[key] = row(*set_claims(Prf[te], y[te], q, kind), al, Ty[te])
+                            q = ltt_sets(Prf, y, cal, fit, al, delta, kind, gi=(gi if unit_src else None))
+                            res[key] = row(*set_claims(Prf[te], y[te], q, kind), al, Ty[te], TG)
                     if "G3" in methods:
                         ok, ch = claims(S3[te], ltt_p(S3[cal], E3[cal], S3[fit], E3[fit], al, delta, pjoint))
-                        res["G3"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                        res["G3"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
                     if "G4" in methods:
                         ok, ch = claims(S3[te], ltt_p(S3[cal], E3[cal], S3[fit], E3[fit], al, delta, pstrict))
-                        res["G4"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                        res["G4"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
                     if "G5" in methods:
                         ls, lw = ltt_two(S3[cal], E3[cal], S3[fit], E3[fit], al, delta); ok, ch = claims2(S3[te], ls, lw)
-                        res["G5"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                        res["G5"] = row(ok, ch, E3[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
                     if PWF is not None and "P4pw" in methods:      # compute-matched control for G2pw / G5pw: the same
-                        lam = ltt(S3p[cal][:, [0]], E3p[cal][:, [0]], al, delta, S3p[fit][:, [0]], E3p[fit][:, [0]])   # features,
-                        res["P4pw"] = row(S3p[te, 0] <= lam, zeros, E3p[te, 0], al, Ty[te])                       # strict claims only
+                        lam = ltt(S3p[cal][:, [0]], E3p[cal][:, [0]], al, delta, S3p[fit][:, [0]], E3p[fit][:, [0]], gc=GC, gf=GF)   # features,
+                        res["P4pw"] = row(S3p[te, 0] <= lam, zeros, E3p[te, 0], al, Ty[te], TG)                       # strict claims only
                     if PWF is not None and "G2pw" in methods:
-                        ok, ch = claims(S3p[te], ltt(S3p[cal], E3p[cal], al, delta, S3p[fit], E3p[fit]))
-                        res["G2pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                        ok, ch = claims(S3p[te], ltt(S3p[cal], E3p[cal], al, delta, S3p[fit], E3p[fit], gc=GC, gf=GF))
+                        res["G2pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
                     if PWF is not None and "G5pw" in methods:
                         ls, lw = ltt_two(S3p[cal], E3p[cal], S3p[fit], E3p[fit], al, delta); ok, ch = claims2(S3p[te], ls, lw)
-                        res["G5pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te])
+                        res["G5pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
                     for mth, r in res.items():
                         out.append(dict(dataset=spec, judge=j, n=n, human_tie=float((y == 2).mean()),
                                         n_persona=(nsa if mth in ("T1", "T2") else None), method=mth, alpha=al, split=sp, **r))
@@ -467,6 +516,8 @@ def summarize(rows):
                         tie_claim_share=np.mean([r.get("tie_claims", np.nan) for r in R]),
                         weak_share=np.mean([r.get("weak_claims", np.nan) for r in R]),
                         nondirectional_share=np.mean([r.get("nondirectional", np.nan) for r in R]),
+                        risk_source=(np.nanmean([r.get("risk_source", np.nan) for r in R]) if any(r.get("risk_source", np.nan) == r.get("risk_source", np.nan) for r in R) else np.nan),
+                        guarantee_success_source=(1 - float(np.mean([r.get("violated_source") == 1.0 for r in R])) if any("risk_source" in r for r in R) else np.nan),
                         splits_answered=sum(r["accepted"] > 0 for r in R),
                         accepted_median=float(np.median([r["accepted"] for r in R])),
                         pooled_risk=(sum(r["errors"] for r in R) / sum(r["accepted"] for r in R) if sum(r["accepted"] for r in R) else np.nan),
