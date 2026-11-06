@@ -17,6 +17,7 @@ from eaglev_stats import auroc
 ap = argparse.ArgumentParser()
 ap.add_argument("--out", default="paper_tables/lora_eval.md")
 ap.add_argument("--dir", default="/media/shawn/C/papers/VLM/judgebench_local/a100_sync/out_lora")
+ap.add_argument("--tags", default="lm,connector,lm_hard", help="fine-tuned variants to evaluate, e.g. lm,connector,lm_hard,lm_hard_all,lm_e3,connector_e3")
 a = ap.parse_args()
 SETS = {"mllm_judge_sp": ["mllm_judge_sp"], "mllm_judge": ["mllm_judge"], "genai_arena": ["genai_arena"]}
 
@@ -41,13 +42,14 @@ L = ["# Tie-channel LoRA diagnostic (Qwen3-VL-8B, out-of-fold)", "",
      "| dataset | variant | n | tie AUROC | T on human ties | T share | 3-way acc | strict acc (decided) |", "|---|---|---|---|---|---|---|---|"]
 for ds in SETS:
     I = items(ds, rest=(ds != "mllm_judge_sp"))
-    V = {t: read(t, ds) for t in ("lm", "connector", "lm_hard")}
+    TAGS = a.tags.split(",")
+    V = {t: read(t, ds) for t in TAGS}
     ids_ft = sorted(set(V["lm"]) & set(V["connector"]))
     if not ids_ft:
         continue
     P = per_judge(ds, "qwen3vl8b", {i: I[i] for i in ids_ft if i in I}); V["base"] = {i: P[i][1] for i in P}
-    for tag in ("base", "lm", "connector", "lm_hard"):
-        ids = [i for i in (ids_ft if tag != "lm_hard" else sorted(V["lm_hard"])) if i in V[tag] and i in I]
+    for tag in ["base"] + TAGS:
+        ids = [i for i in (sorted(V[tag]) if tag.startswith("lm_hard") else ids_ft) if i in V[tag] and i in I]
         if not ids:
             continue
         y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids]); Q = np.array([V[tag][i] for i in ids])
