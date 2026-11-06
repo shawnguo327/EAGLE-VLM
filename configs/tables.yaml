@@ -1,0 +1,55 @@
+# Paper tables: built only from the summary CSVs of these experiments (results/<name>/latest/summary.csv)
+results: /media/shawn/C/papers/VLM/results
+experiments: {conventional: conventional, certify: certify_main, router: router_main}
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b, r1reward, llavacritic7b]
+general_judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b]
+judge_names: {qwen3vl8b: Qwen3-VL-8B, internvl35_8b: InternVL3.5-8B, qwen35_9b: Qwen3.5-9B, qwen25vl7b: Qwen2.5-VL-7B,
+              qwen3vl32b: Qwen3-VL-32B, internvl35_38b: InternVL3.5-38B, r1reward: R1-Reward*, llavacritic7b: LLaVA-Critic-7B*}
+dataset_order: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k, polaris, agiqa3k]
+router_datasets: [mllm_judge_sp, genaibench, imagerewarddb, genai_arena/generation, genai_arena/edition, polaris, agiqa3k]
+dataset_names:
+  mllm_judge: MLLM-as-a-Judge (pairs)
+  mllm_judge_sp: MLLM-as-a-Judge (score pairs)
+  genaibench: GenAI-Bench
+  genai_arena/generation: GenAI-Arena generation
+  genai_arena/edition: GenAI-Arena edition
+  pickapic_u: Pick-a-Pic
+  imagerewarddb: ImageRewardDB
+  mtbench_human: MT-Bench (text)
+  arena55k: Chatbot Arena 55k (text)
+  polaris: Polaris
+  agiqa3k: AGIQA-3K
+datasets:   # task, source, which data we use
+  mllm_judge: [image + question -> two answers, "MLLM-as-a-Judge, ICML 2024", full pair split]
+  mllm_judge_sp: [image + question -> two answers with human 1-5 scores, "MLLM-as-a-Judge score split", all within-question pairs]
+  genaibench: [text -> two images; 3 raters x 1-5 per image, "GenAI-Bench (VQAScore, CVPR 2024 SynData)", "all 1,600 prompts (24,000 pairs) once the extension finishes; 600 prompts until then"]
+  genai_arena/generation: [text -> two images; arena votes, "GenAI-Arena, NeurIPS 2024 D&B", full]
+  genai_arena/edition: [source image + instruction -> two edits, "GenAI-Arena, NeurIPS 2024 D&B", full]
+  pickapic_u: [text -> two images; user votes, "Pick-a-Pic, NeurIPS 2023", standard test_unique + validation_unique]
+  imagerewarddb: [text -> images; expert ranks and 1-7 scores, "ImageReward, NeurIPS 2023", full pairwise expansion]
+  mtbench_human: [text; multi-turn chat, "MT-Bench, NeurIPS 2023 D&B", all expert-judged pairs]
+  arena55k: [text; chat, lmarena arena-human-preference-55k, "random sample at the natural tie rate (SCOPE samples 2,000 non-tied, ToE 5.2k)"]
+  polaris: [image -> two captions; human 0-1, "Polaris, CVPR 2024", full test set]
+  agiqa3k: [text -> images; MOS quality + alignment, "AGIQA-3K, IEEE TCSVT 2023", all 300 prompts]
+methods:
+  - [P1, SCOPE 原样（删平局校准）]
+  - [P1s, SCOPE 原样，单序]
+  - [P2, SCOPE，校准保留平局]
+  - [P3, 严格断言 + LTT（BPE）]
+  - [P4, 严格断言 + LTT + 全部组件 + 校准器]
+  - [T1, Trust or Escalate 原样（删平局校准）]
+  - [T2, Trust or Escalate，校准保留平局]
+  - [G0, 分级断言，无校准器]
+  - [G1, 分级断言 + 校准器，单序特征]
+  - [G2, "**分级断言 + 校准器（ours）**"]
+  - [G3, 分级断言，每一级都 ≤ α]
+  - [G4, 分级断言，总体与严格断言都 ≤ α（同一阈值）]
+  - [G5, 分级断言，总体与严格断言都 ≤ α（严格断言单独阈值）]
+router_variants:
+  - ["pairwise graded (G2)", 只用分级断言]
+  - ["control: routed, no pointwise", 对照：路由但不看单项分数]
+  - ["router: cells", "**路由：平局地图**"]
+  - ["router: logistic", 路由：逻辑回归]
+  - ["router: jury pointwise", 路由：多 judge 单项分数平均]
+alphas_certify: [0.2, 0.1, 0.3]
+alphas_router: [0.2, 0.1, 0.3]
