@@ -43,8 +43,34 @@ original scripts' outputs.
 Section-2 / section-3 mechanism analyses and the resolution check are `type: script` experiments
 (`configs/exp/section2_*.yaml`, `section3_*.yaml`, `setup_resolution.yaml`): the runner calls the original script with the
 config's arguments, writes its markdown into the results directory, converts every table to CSV
-(`<output>__tNN.csv`, index in `<output>__tables.csv`) and records the script md5. Not yet configured: the Best-of-N
-analysis (its GPU stage is still running).
+(`<output>__tNN.csv`, index in `<output>__tables.csv`) and records the script md5.
+
+Further experiments (same runner): `certify_strong.yaml` (strict-claim variants G4 / G5, pointwise-augmented calibrators
+G2pw / G5pw, juries), `certify_abs.yaml` / `router_abs.yaml` (datasets with absolute scores), `router_tielabel.yaml`
+(router where "no clear winner" = human tie), `human_ceiling.yaml` (one annotator against the others).
+
+### Downstream: Best-of-N (Section 9)
+
+GPU stage (rented A100; outputs saved):
+1. Candidates: VLMEvalKit at the pinned commit (`scripts/a100/vlmeval_pins.txt`), official config `InternVL2_5-8B-BoN-8`
+   (InternVL2.5-8B, 8 chain-of-thought samples, VisualPRM-8B selection), unchanged except for the env-gated `BON_DUMP`
+   patch that also records all 8 candidates and the PRM scores (the selected answer is unchanged):
+   `scripts/a100/run_bon_full_g0.sh` (ScienceQA_TEST), `scripts/a100/run_bon_mmmu_g0.sh` (MMMU_DEV_VAL).
+2. Correctness of every candidate with VLMEvalKit's own evaluator (CPU, vlmeval env, VLMEvalKit dir):
+   `python scripts/bon/bon_candidates.py --postprocess boxed --dataset ScienceQA_TEST --dump <dump> --pred <VLMEvalKit sheet> --out <dir>`
+   (`boxed` = VLMEvalKit's InternVL chain-of-thought post-processing, the content of the last `\boxed{}`; `none` = raw
+   response, which exact matching cannot parse without VLMEvalKit's GPT answer extractor).  Writes `summary.csv`
+   (greedy / VisualPRM / majority-vote / pass@8 accuracy, pair-type counts) and `candidates.jsonl.gz`.
+3. Judge items: `python scripts/bon/make_bon_items.py --cands <dir>/boxed/candidates.jsonl.gz --name bon_scienceqa --data <judgebench_local>`
+   (8 cyclic pairs per question; label = correctness; both correct / both wrong = tie).
+4. Judges: `scripts/a100/run_bon_pairs.sh <gpu> <wait-pid|none> <judges...>` (`bin`, `tri`, `score` on all pairs).
+
+CPU stage:
+```
+python -m eaglevlm.pipeline.run configs/exp/downstream_bon.yaml               # certification on candidate pairs (split by question)
+python -m eaglevlm.pipeline.run configs/exp/downstream_bon_conventional.yaml  # accuracy / ECE / AUROC, ties dropped vs kept
+python -m eaglevlm.pipeline.run configs/exp/downstream_bon_select.yaml        # Best-of-8 selection, preference-pair quality
+```
 
 ## Frozen raw outputs (snapshot)
 
