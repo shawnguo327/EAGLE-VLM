@@ -306,9 +306,38 @@ def tab_transitivity(out):
     open(f"{out}/tables/tab_transitivity.tex", "w").write("\n".join(L) + "\n")
 
 
+DU = f"{RES}/decision_utility/20261107/decision_utility_splits.csv"
+DU_COLS = [("genaibench", "mid"), ("genaibench", "high"), ("imagenhub/edit", "mid"), ("evalmuse", "high"), ("mllm_judge_sp", "high")]
+DU_POL = [("pair_forced", "Pairwise, ship only"), ("pair_reject", "Pairwise, ship or reject"), ("pair_T_esc", "Pairwise, escalate own ``tie''"),
+          ("gate_random", "Route random half"), ("gate_entropy", "Route uncertain half"), ("gate_tie", "Route high-$\\hat p(T)$ half"),
+          ("pointwise_only", "Pointwise only"), ("both_all", "Pairwise + pointwise, all"), ("oracle_tie", "Route human ties (oracle)")]
+
+
+def tab_decision(out, al=.2):
+    R = rows(DU); G = collections.defaultdict(list)
+    for r in R:
+        if abs(f(r["alpha"]) - al) < 1e-9:
+            G[(r["dataset"], r["tau"], r["policy"], r["judge"])].append(r)
+    M = collections.defaultdict(list)
+    for (ds, t, pol, j), rr in G.items():
+        M[(ds, t, pol)].append((np.mean([f(r["automated"]) for r in rr]), np.mean([f(r["shipped_ok"]) for r in rr]), np.mean([f(r["calls"]) for r in rr])))
+    L = [HEAD.format(src="decision_utility/20261107"), r"\begin{tabular}{lr" + "r" * len(DU_COLS) + "}", r"\toprule",
+         " & & " + " & ".join(f"{NAME[d]}" for d, _ in DU_COLS) + r" \\",
+         r"Policy & Calls & " + " & ".join(f"$\\tau$ {t}" for _, t in DU_COLS) + r" \\", r"\midrule"]
+    for pol, nm in DU_POL:
+        calls = np.mean([np.mean([x[2] for x in M[(d, t, pol)]]) for d, t in DU_COLS if M.get((d, t, pol))])
+        cells = []
+        for d, t in DU_COLS:
+            v = M.get((d, t, pol))
+            cells.append("--" if not v else f"{np.mean([x[0] for x in v]):.2f} ({100 * np.mean([x[1] for x in v]):.0f})")
+        L.append(f"{nm} & {calls:.1f} & " + " & ".join(cells) + r" \\")
+    L += [r"\bottomrule", r"\end{tabular}"]
+    open(f"{out}/tables/tab_decision.tex", "w").write("\n".join(L) + "\n")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); a = ap.parse_args()
     os.makedirs(f"{a.out}/tables", exist_ok=True); os.makedirs(f"{a.out}/figs", exist_ok=True)
     for fn in (tab_baselines, tab_claimrisk, tab_tietypes, tab_triage, fig_tietypes, fig_triage, tab_forced, tab_tieaversion,
-               tab_rankscore, tab_transitivity):
+               tab_rankscore, tab_transitivity, tab_decision):
         fn(a.out); print("wrote", fn.__name__)
