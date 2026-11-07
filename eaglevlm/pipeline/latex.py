@@ -48,11 +48,12 @@ def write(cfg, CONV, CERT, ROUT, out_dir, CERTP=None):
     full = [("tab_certify_full", CERT, cols_full)]
     if CERTP:                                                            # pair-level unit (published protocols), supplement
         full.append(("tab_certify_full_pair", CERTP, [tuple(c) for c in cfg.get("latex_cert_cols_pair", pair_cols)]))
-    per = cfg.get("latex_full_per_table") or len(sets)                  # long supplement tables: parts of `per` benchmarks
-    for name, C_, cl in full:                                            # (<name>.tex, <name>_b.tex, ...) that fit a page
-        for ci in range(0, max(len(sets), 1), per):
-            jobs.append((name + ("" if ci == 0 else "_" + "bcdefgh"[ci // per - 1]), sets[ci:ci + per], C_, cl,
-                         cfg.get("latex_methods_full", M)))
+    Mf = cfg.get("latex_methods_full", M)
+    for name, C_, cl in full:                     # long supplement tables: parts of latex_full_per_table benchmarks
+        cs = [s for s in sets if any((s, j, code, al) in C_ for j in GEN for code, _ in Mf)]   # (<name>.tex, _b, ...)
+        per = cfg.get("latex_full_per_table") or max(len(cs), 1)
+        for ci in range(0, max(len(cs), 1), per):
+            jobs.append((name + ("" if ci == 0 else "_" + "bcdefgh"[ci // per - 1]), cs[ci:ci + per], C_, cl, Mf))
     for name, dsets, CERT, cols, M in jobs:
         L = [head, "\\begin{tabular}{ll" + "r" * len(cols) + "}", "\\toprule",
              "Benchmark & Method & " + " & ".join(c for _, c, _ in cols) + " \\\\", "\\midrule"]
