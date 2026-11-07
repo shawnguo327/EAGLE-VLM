@@ -118,8 +118,11 @@ latex_methods_full:
   - [P4, Strict + all]
   - [SA, Generic sets (APS)]
   - [SAo, 'Generic sets, ordinal']
+  - [SL, Generic sets (LAC)]
+  - [SLo, 'Generic sets (LAC), ordinal']
   - [G2, '\textbf{Graded (ours)}']
   - [G5, Graded strict-safe]
+latex_full_per_table: 5          # supplement tables in parts of five benchmarks (tab_certify_full.tex, _b.tex, ...)
 # review 11-07 (N3, W2): coverage of the source-uniform population next to its risk; pooled = the matched source-level
 # ratio of expectations (SCOPE's target); GS is a finite-test stability statistic (no colour); Ans. = answered test pairs
 latex_cert_cols:
