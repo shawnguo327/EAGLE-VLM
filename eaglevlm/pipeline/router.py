@@ -262,6 +262,8 @@ def run(cfg, store, log):
                                             significant=(float(binom.sf(int(e[ok].sum()) - 1, kk, al) < .05) if kk else np.nan),
                                             gain_vs_g2=float(ok.mean()) - base.get((al, rule), np.nan),
                                             risk_source=rsrc, violated_source=(float(rsrc > al) if kk else np.nan),
+                                            source_coverage=float(ag.mean()), src_acc_mass=float(ag.sum()), src_err_mass=float(eg.sum()),
+                                            accepted_sources=int((ag > 0).sum()),
                                             routed=float(rmask[te].mean())))
             log(f"done {spec} {j} (n={n})")
     return out
@@ -285,6 +287,9 @@ def summarize(rows):
                         guarantee_success_all=float(1 - np.mean([r["violated"] == 1.0 for r in R])),
                         risk_source=(np.nanmean([r.get("risk_source", np.nan) for r in R]) if any(r.get("risk_source", np.nan) == r.get("risk_source", np.nan) for r in R) else np.nan),
                         guarantee_success_source=float(1 - np.mean([r.get("violated_source") == 1.0 for r in R])),
+                        source_coverage=np.mean([r.get("source_coverage", np.nan) for r in R]),
+                        pooled_risk_source=(sum(r.get("src_err_mass", 0) for r in R) / sum(r.get("src_acc_mass", 0) for r in R)
+                                            if sum(r.get("src_acc_mass", 0) for r in R) > 0 else np.nan),
                         no_clear_winner=R[0]["no_clear_winner"], both_unacceptable=R[0]["both_unacceptable"], splits=len(R),
                         acceptance=np.mean([r["acceptance"] for r in R]), informative=dec + lev, decisive=dec, level=lev,  # informative = strict + absolute-level (tie claims reported separately)
                         level_precision=(sum(r["level_correct"] for r in R) / lc if lc else np.nan), weak=np.mean([r["weak"] for r in R]),

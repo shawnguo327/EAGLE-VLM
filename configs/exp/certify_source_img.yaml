@@ -1,0 +1,17 @@
+# Review 11-07 (W5 / P1-2): sensitivity of the source-level certificate to the grouping.  The main unit groups pairs by
+# question + context images; on MLLM-as-a-Judge 1,473 such sources share 1,373 images (100 images serve two questions), so
+# 15.7% of test pairs show an image also seen in fit / calibration.  Here pairs are grouped by their context images alone
+# (source_by: image), the split is drawn over images and calibration uses one pair per image; same seed and budget otherwise.
+name: certify_source_img
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b]
+methods: [P1, P2, P4, SA, SAo, G2, G5]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+source_by: image
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+min_coverage: 0.95

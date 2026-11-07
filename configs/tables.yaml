@@ -100,23 +100,49 @@ latex_tasks:
   arena55k: chat (text)
   polaris: captioning
   agiqa3k: text-to-image
-latex_main_sets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, mtbench_human]
+latex_main_sets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/edition, mtbench_human]
 latex_methods:
   - [P1, 'SCOPE~\cite{badshah2026scope}']
-  - [T1, 'ToE~\cite{jung2024trust}']
+  - [T1, 'ToE-style, zero-shot']
+  - [P2, SCOPE + ties]
+  - [P4, Strict + all]
+  - [SA, Generic sets (APS)]
+  - [SAo, 'Generic sets, ordinal']
+  - [G2, '\textbf{Graded (ours)}']
+  - [G5, Graded strict-safe]
+latex_methods_full:
+  - [P1, 'SCOPE~\cite{badshah2026scope}']
+  - [T1, 'ToE-style, zero-shot']
   - [P2, SCOPE + ties]
   - [TC, "Tie calib.~\\cite{deutsch2023ties}"]
   - [P4, Strict + all]
-  - [G2, '\textbf{Ours}']
-  - [G5, Ours (strict-safe)]
-latex_cert_cols:          # [summary column, header, decimals]; source-weighted test risk and its guarantee success
-  - [acceptance, Cov., 2]
-  - [decisive, Dec., 2]
-  - [set_size, Size, 2]
+  - [SA, Generic sets (APS)]
+  - [SAo, 'Generic sets, ordinal']
+  - [G2, '\textbf{Graded (ours)}']
+  - [G5, Graded strict-safe]
+# review 11-07 (N3, W2): coverage of the source-uniform population next to its risk; pooled = the matched source-level
+# ratio of expectations (SCOPE's target); GS is a finite-test stability statistic (no colour); Ans. = answered test pairs
+latex_cert_cols:
+  - [source_coverage, Cov., 2]
+  - [decisive, Str., 2]
   - [risk_source, Risk, 3]
+  - [pooled_risk_source, Pooled, 3]
   - [guarantee_success_source, GS, 2]
   - [accepted_median, Ans., 0]
+latex_cert_cols_full:
+  - [source_coverage, Cov.$_s$, 2]
+  - [acceptance, Cov.$_p$, 2]
+  - [decisive, Str., 2]
+  - [tie_claim_share, Tie, 2]
+  - [weak_share, Weak, 2]
+  - [nondirectional_share, '$\{A,B\}$', 2]
+  - [risk_source, Risk, 3]
+  - [pooled_risk_source, Pooled, 3]
+  - [guarantee_success_source, GS, 2]
+  - [splits_answered, Ansd., 0]
+  - [accepted_median, Ans., 0]
 latex_router_risk: risk_source
+latex_router_cov: source_coverage
 latex_router_variants:
   - ["pairwise graded (G2)", Graded only]
   - ["control: routed, no pointwise", Control]

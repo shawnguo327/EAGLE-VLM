@@ -33,6 +33,8 @@ Methods:
   G2b  graded claims from a calibrator that sees only the forced-choice (binary) signals, no tie-prompt p(T)
   SL / SA  generic set predictors over {A, B, T} certified with the same LTT: LAC sets {y: p(y) >= 1 - q} and APS sets
        (labels by decreasing probability until the mass reaches q); a full set is an abstention, an empty set too
+  SLo / SAo  the same with the claim family restricted to the ordinal claims (the 'not a tie' set {A,B} abstains), certified
+       again for that restricted policy (review 11-07: a consumer of directional claims needs this, not SA's certificate)
   T3   simulated-annotator signal keeping the tie: the persona prompts' A/B/T probabilities (averaged over personas and
        orders) turned into graded claims and certified with the same LTT (on benchmarks where the personas were run)
   judge "jury:<m1>+<m2>+...": the calibrator sees the features of all member judges (pairs judged by every member);
@@ -50,6 +52,8 @@ calibrate on ALL pairs of the calibration sources with the pair-level binomial -
 that keeps the dependent pairs as if independent (no valid guarantee; shows whether changing the split alone suffices).
 Optional cfg 'cond_map' (e.g. {bin: bin_blind, tri: tri_blind}): read the pairwise signals from other prompt conditions
 (review W13: the same certification on the image-removed prompts; pointwise methods then need cfg 'pointwise: false').
+Optional cfg 'source_by: image' (with a source unit): group pairs by their context images only, a coarser unit than
+question + images (sensitivity to images shared across questions, review 11-07).
 Optional cfg 'group: meta.<key>' (e.g. meta.question_index for Best-of-N candidate pairs): the fit / calibration / test
 split is drawn over groups, so all pairs of a group fall in the same part; without it the split is over pairs, as in the
 original scripts.
@@ -265,19 +269,41 @@ def row(ok, ch, err, al, tie=None, g=None):
         _, inv, cnt = np.unique(g, return_inverse=True, return_counts=True)
         ag = np.bincount(inv, ok.astype(float)) / cnt; eg = np.bincount(inv, (err * ok).astype(float)) / cnt
         rs = float(eg.sum() / ag.sum()) if ag.sum() else np.nan
-        d.update(risk_source=rs, sources=int(len(cnt)), violated_source=(float(rs > al) if ag.sum() else np.nan))
+        d.update(risk_source=rs, sources=int(len(cnt)), violated_source=(float(rs > al) if ag.sum() else np.nan),
+                 source_coverage=float(ag.mean()), src_acc_mass=float(ag.sum()), src_err_mass=float(eg.sum()),
+                 accepted_sources=int((ag > 0).sum()))
     if tie is not None:                     # human ties among the accepted pairs / among the strict claims (Proposition 1)
         d.update(accepted_ties=int((ok & tie).sum()), strict_on_ties=int((st & tie).sum()))
     return d
 
 
-def source_key(item):
-    """pairs sharing a source: the same question / prompt and the same context images (review W5)"""
+def source_key(item, by="question+image"):
+    """pairs sharing a source: the same question / prompt and the same context images (review W5).  by='image': the
+    context images alone (items without context images fall back to the question), a coarser grouping used to check
+    sensitivity to image sharing across questions (review 11-07)"""
+    if by == "image" and item["context"]:
+        return "\x1f".join(item["context"])
     return item["question"] + "\x1f" + "\x1f".join(item["context"])
 
 
+def fewshot_demo_sources(ds, items_dirs):
+    """sources of the few-shot demonstrations of judge_bench.register_demos (the first FS_K * FS_N = 9 decided items, in
+    crc32 order of the id, of the dataset's main item file); every pair of these sources is excluded from the T4 / T5
+    evaluation so that no evaluated pair shares a question or image with a demonstration (review 11-07, N4)"""
+    import json, os, zlib
+    for d in items_dirs:
+        p = f"{d}/{ds}.jsonl"
+        if os.path.exists(p):
+            rows = [json.loads(l) for l in open(p)]
+            pool = sorted([r for r in rows if str(r.get("label")) in ("0", "1")], key=lambda r: zlib.crc32(r["id"].encode()))[:9]
+            return {source_key(r) for r in pool}, sorted(r["id"] for r in pool), p
+    return set(), [], None
+
+
 def make_sets(Pr, q, kind):
-    """generic label sets over {0: A, 1: B, 2: T}: LAC {y: p(y) >= 1 - q}; APS = labels by decreasing p until mass >= q"""
+    """generic label sets over {0: A, 1: B, 2: T}: LAC {y: p(y) >= 1 - q}; APS = labels by decreasing p until mass >= q
+    (kind may end in '_ord': the same sets, with the non-contiguous {A,B} turned into an abstention by set_claims)"""
+    kind = kind.split("_")[0]
     if kind == "lac":
         return Pr >= 1 - q
     o = np.argsort(-Pr, axis=1, kind="stable"); cs = np.take_along_axis(Pr, o, 1).cumsum(1)
@@ -291,6 +317,8 @@ def set_claims(Pr, y, q, kind):
     """(accepted, claim type, error) for row(): a set of size 1 or 2 is a claim, a full or empty set an abstention;
     q = -inf (nothing certified) abstains everywhere"""
     S = make_sets(Pr, q, kind) if q > -np.inf else np.ones_like(Pr, bool); size = S.sum(1); ok = (size > 0) & (size < 3)
+    if kind.endswith("_ord"):                # restricted family: only claims of the ordinal kind (no 'not a tie' {A,B})
+        ok &= ~((size == 2) & ~S[:, 2])
     ch = np.where(size == 2, np.where(S[:, 2], 2, 3), np.where(S[:, 2] & (size == 1), 1, 0))
     return ok, ch, (~S[np.arange(len(y)), y]).astype(float)
 
@@ -361,8 +389,12 @@ def run(cfg, store, log):
             n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids]); Ty = y == 2
             grp = cfg.get("group"); unit_src = cfg.get("unit", "pair") == "source"; unit_one = cfg.get("unit", "pair") == "source1"
             unit_sp = cfg.get("unit", "pair") == "source_pairs"
+            if unit_src and {"G3", "G4", "G5", "G5pw"} & set(methods):       # binomial-only helpers (review 11-07)
+                log(f"note {spec} {j}: G3 / G4 / G5 / G5pw are not supported under unit: source (no per-source bounded-loss "
+                    f"test in their helpers) and are skipped")
+                methods = [m for m in methods if m not in ("G3", "G4", "G5", "G5pw")]
             if grp or unit_src or unit_one or unit_sp:
-                keys = [str(I[i]["meta"][grp.split(".", 1)[1]]) if grp else source_key(I[i]) for i in ids]
+                keys = [str(I[i]["meta"][grp.split(".", 1)[1]]) if grp else source_key(I[i], cfg.get("source_by", "question+image")) for i in ids]
                 ug, gi = np.unique(np.array(keys), return_inverse=True)
             else:
                 gi = None
@@ -399,7 +431,12 @@ def run(cfg, store, log):
                     sa_fc = np.where(ps > .5, 0, 1); sa_et = np.where(y == 2, 1.0, (sa_fc != y).astype(float))
             nfs = 0
             if {"T4", "T5"} & set(methods) and len(members) == 1:
-                PF = persona_fs(store, ds, j, ids); hasf = np.array([i in PF for i in ids]); nfs = int(hasf.sum())
+                PF = persona_fs(store, ds, j, ids); hasf = np.array([i in PF for i in ids])
+                dsrc, dids, dfile = fewshot_demo_sources(ds, cfg.get("fewshot_items_dirs", list(store.items_dirs)[::-1]))
+                demo_rel = np.array([source_key(I[i]) in dsrc for i in ids])
+                log(f"fewshot {spec} {j}: demonstrations {dids} from {dfile}; {int((hasf & demo_rel).sum())} evaluated pairs share "
+                    f"their sources and are excluded")
+                hasf &= ~demo_rel; nfs = int(hasf.sum())
                 if nfs >= 200:
                     pf = np.array([PF.get(i, .5) for i in ids]); fs_s = 1 - np.maximum(pf, 1 - pf)
                     fs_fc = np.where(pf > .5, 0, 1); fs_et = np.where(y == 2, 1.0, (fs_fc != y).astype(float))
@@ -462,10 +499,10 @@ def run(cfg, store, log):
                                 pwt_ch = np.where(mg2[te] <= eps2, 1, 0)
                                 pwt_err = np.where(pwt_ch == 1, y[te] != 2, pw_fc[te] != y[te]).astype(float)
                             res["PWT"] = row(np.ones(len(te), bool), pwt_ch, pwt_err, al, Ty[te], TG)
-                        if "PWL" in methods:
-                            sp = 1 - np.minimum(np.abs(dE), 8) / 8; ep = np.where(y == 2, 1.0, (pw_fc != y).astype(float))
-                            lam = ltt(sp[cal][:, None], ep[cal][:, None], al, delta, sp[fit][:, None], ep[fit][:, None], gc=GC, gf=GF)
-                            res["PWL"] = row(sp[te] <= lam, zeros, ep[te], al, Ty[te], TG)
+                        if "PWL" in methods:         # (s_pw: this score once overwrote the split index `sp` - review 11-07 N1)
+                            s_pw = 1 - np.minimum(np.abs(dE), 8) / 8; ep = np.where(y == 2, 1.0, (pw_fc != y).astype(float))
+                            lam = ltt(s_pw[cal][:, None], ep[cal][:, None], al, delta, s_pw[fit][:, None], ep[fit][:, None], gc=GC, gf=GF)
+                            res["PWL"] = row(s_pw[te] <= lam, zeros, ep[te], al, Ty[te], TG)
                     if "TC" in methods:     # tie calibration (Deutsch et al., EMNLP 2023): 'tie' if |p - .5| <= eps, else the
                         if al == AL[0]:     # forced-choice winner; eps maximises 3-way accuracy on the calibration split.
                             mg = np.abs(p - .5); oc = cal[np.argsort(mg[cal], kind="stable")]; mc = mg[oc]   # every pair gets a
@@ -509,7 +546,7 @@ def run(cfg, store, log):
                         S2, E2 = S3[:, :2], E3[:, :2]
                         ok, ch = claims(S2[te], ltt(S2[cal], E2[cal], al, delta, S2[fit], E2[fit], gc=GC, gf=GF))
                         res["G2s"] = row(ok, ch, E2[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
-                    for key, kind in (("SL", "lac"), ("SA", "aps")):
+                    for key, kind in (("SL", "lac"), ("SA", "aps"), ("SLo", "lac_ord"), ("SAo", "aps_ord")):
                         if key in methods:
                             q = ltt_sets(Prf, y, cal, fit, al, delta, kind, gi=(gi if unit_src else None))
                             res[key] = row(*set_claims(Prf[te], y[te], q, kind), al, Ty[te], TG)
@@ -531,6 +568,7 @@ def run(cfg, store, log):
                     if PWF is not None and "G5pw" in methods:
                         ls, lw = ltt_two(S3p[cal], E3p[cal], S3p[fit], E3p[fit], al, delta); ok, ch = claims2(S3p[te], ls, lw)
                         res["G5pw"] = row(ok, ch, E3p[te][np.arange(len(te)), np.maximum(ch, 0)], al, Ty[te], TG)
+                    assert isinstance(sp, int), "split index overwritten"
                     for mth, r in res.items():
                         out.append(dict(dataset=spec, judge=j, n=n, human_tie=float((y == 2).mean()),
                                         n_persona=(nsa if mth in ("T1", "T2") else nfs if mth in ("T4", "T5") else None), method=mth,
@@ -566,6 +604,13 @@ def summarize(rows):
                         risk_source=(np.nanmean([r.get("risk_source", np.nan) for r in R]) if any(r.get("risk_source", np.nan) == r.get("risk_source", np.nan) for r in R) else np.nan),
                         guarantee_success_source=(1 - float(np.mean([r.get("violated_source") == 1.0 for r in R])) if any("risk_source" in r for r in R) else np.nan),
                         splits_answered=sum(r["accepted"] > 0 for r in R),
+                        # review 11-07 (N3): source-uniform coverage next to the pair-weighted one, and the matched pooled
+                        # source ratio sum_splits sum_g e_g / sum_splits sum_g a_g (numerator and denominator averaged
+                        # separately; every source1 split has the same number of test sources) - SCOPE's ratio target
+                        source_coverage=(np.mean([r.get("source_coverage", np.nan) for r in R]) if any("source_coverage" in r for r in R) else np.nan),
+                        pooled_risk_source=(sum(r.get("src_err_mass", 0) for r in R) / sum(r.get("src_acc_mass", 0) for r in R)
+                                            if sum(r.get("src_acc_mass", 0) for r in R) > 0 else np.nan),
+                        accepted_sources_median=(float(np.median([r["accepted_sources"] for r in R])) if all("accepted_sources" in r for r in R) else np.nan),
                         accepted_median=float(np.median([r["accepted"] for r in R])),
                         pooled_risk=(sum(r["errors"] for r in R) / sum(r["accepted"] for r in R) if sum(r["accepted"] for r in R) else np.nan),
                         violation_all=float(np.mean([r["violated"] == 1.0 for r in R])),

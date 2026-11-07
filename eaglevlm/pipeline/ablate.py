@@ -63,7 +63,8 @@ CONTRASTS = [("F01", "F00"), ("F02", "F01"), ("F12", "F02"), ("F10", "F00"), ("F
              ("U2", "U1"), ("U2", "U1c"), ("U2", "U1t"), ("U3", "U2"), ("U2", "U2i"), ("U1", "U1s")]
 KEYS = ["dataset", "judge", "n", "human_tie", "method", "alpha", "split", "acceptance", "set_size", "excluded", "decisive",
         "strict_errors", "strict_claims", "accepted", "errors", "risk", "violated", "significant", "empty", "tie_claims",
-        "weak_claims", "nondirectional", "risk_source", "sources", "violated_source", "accepted_ties", "strict_on_ties",
+        "weak_claims", "nondirectional", "risk_source", "sources", "violated_source", "source_coverage", "src_acc_mass",
+        "src_err_mass", "accepted_sources", "accepted_ties", "strict_on_ties",
         "auto_on_ties", "regret", "tie_auroc", "logloss", "ci_risk_lo", "ci_risk_hi",
         "d_acceptance", "d_excluded", "ci_acc_lo", "ci_acc_hi", "ci_excl_lo", "ci_excl_hi"]
 
@@ -233,7 +234,8 @@ def _full(d):
 
 
 SUMKEYS = ["dataset", "judge", "method", "alpha", "n", "human_tie", "splits", "acceptance", "excluded", "set_size", "decisive",
-           "tie_claim_share", "weak_share", "strict_error", "risk", "pooled_risk", "risk_source", "guarantee_success_all",
+           "tie_claim_share", "weak_share", "strict_error", "risk", "pooled_risk", "risk_source", "source_coverage",
+           "pooled_risk_source", "guarantee_success_all",
            "guarantee_success_source", "splits_answered", "accepted_median", "auto_on_ties", "regret", "tie_auroc", "logloss",
            "holdout_acceptance", "holdout_excluded", "holdout_risk_source", "holdout_risk_lo", "holdout_risk_hi",
            "d_acceptance", "d_acc_q025", "d_acc_q975", "d_excluded", "d_excl_q025", "d_excl_q975",
@@ -267,7 +269,9 @@ def summarize(rows):
                      tie_claim_share=mean("tie_claims"), weak_share=mean("weak_claims"),
                      strict_error=(float(np.nansum(f("strict_errors")) / sc) if sc else np.nan),
                      risk=mean("risk"), pooled_risk=(float(np.nansum(f("errors")) / ka) if ka else np.nan),
-                     risk_source=mean("risk_source"),
+                     risk_source=mean("risk_source"), source_coverage=mean("source_coverage"),
+                     pooled_risk_source=(float(np.nansum(f("src_err_mass")) / np.nansum(f("src_acc_mass")))
+                                         if np.nansum(f("src_acc_mass")) > 0 else np.nan),
                      guarantee_success_all=float(1 - np.mean(f("violated") == 1.0)),
                      guarantee_success_source=float(1 - np.mean(f("violated_source") == 1.0)),
                      splits_answered=int(np.sum(f("accepted") > 0)), accepted_median=float(np.nanmedian(f("accepted"))),

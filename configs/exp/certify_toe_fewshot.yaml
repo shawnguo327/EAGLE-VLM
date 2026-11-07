@@ -8,6 +8,7 @@ include: ../paths.bjserver.yaml
 datasets: [mllm_judge, mllm_judge_sp, mtbench_human, arena55k]
 judges: [qwen3vl8b, internvl35_8b]
 methods: [P1, T1, T2, T4, T5, G2, G5]
+fewshot_items_dirs: [/media/shawn/C/papers/VLM/judgebench_local/items]
 alphas: [0.1, 0.2, 0.3]
 delta: 0.1
 unit: source1

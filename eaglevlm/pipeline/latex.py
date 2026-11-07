@@ -43,14 +43,19 @@ def write(cfg, CONV, CERT, ROUT, out_dir, CERTP=None):
     pair_cols = [("acceptance", "Cov.", 2), ("decisive", "Dec.", 2), ("set_size", "Size", 2), ("risk", "Risk", 3), ("guarantee_success", "GS", 2),
                  ("significant_violation", "Sig.", 2)]
     cols = [tuple(c) for c in cfg.get("latex_cert_cols", pair_cols)]      # source-level tables: risk_source, guarantee_success_source
-    jobs = [("tab_certify_main", cfg["latex_main_sets"], CERT, cols), ("tab_certify_full", sets, CERT, cols)]
+    cols_full = [tuple(c) for c in cfg.get("latex_cert_cols_full", cfg.get("latex_cert_cols", pair_cols))]
+    jobs = [("tab_certify_main", cfg["latex_main_sets"], CERT, cols, M),
+            ("tab_certify_full", sets, CERT, cols_full, cfg.get("latex_methods_full", M))]
     if CERTP:                                                            # pair-level unit (published protocols), supplement
-        jobs.append(("tab_certify_full_pair", sets, CERTP, [tuple(c) for c in cfg.get("latex_cert_cols_pair", pair_cols)]))
-    for name, dsets, CERT, cols in jobs:
+        jobs.append(("tab_certify_full_pair", sets, CERTP, [tuple(c) for c in cfg.get("latex_cert_cols_pair", pair_cols)],
+                     cfg.get("latex_methods_full", M)))
+    for name, dsets, CERT, cols, M in jobs:
         L = [head, "\\begin{tabular}{ll" + "r" * len(cols) + "}", "\\toprule",
              "Benchmark & Method & " + " & ".join(c for _, c, _ in cols) + " \\\\", "\\midrule"]
         for s in dsets:
             first = True
+            nj = len({j for j in GEN for code, _ in M if (s, j, code, al) in CERT})
+            bname = SN[s] + (f" ({nj})" if 0 < nj < len(GEN) else "")     # judges actually averaged (review 11-07, N5)
             for code, lab in M:
                 rs = [CERT[(s, j, code, al)] for j in GEN if (s, j, code, al) in CERT]
                 if not rs:
@@ -58,18 +63,17 @@ def write(cfg, CONV, CERT, ROUT, out_dir, CERTP=None):
                 cells = []
                 for k, _, d in cols:
                     v = _m(rs, k)
-                    if k.startswith("risk") and v == v and v > al + 1e-9:
+                    if "risk" in k and v == v and v > al + 1e-9:      # risk_source, pooled_risk_source
                         cells.append(f"\\textcolor{{red}}{{{_f(v, d)}}}")
-                    elif k.startswith("guarantee_success") and v == v and v < 0.9 - 1e-9:
-                        cells.append(f"\\textcolor{{red}}{{{_f(v, d)}}}")
-                    else:
+                    else:                      # guarantee success is a finite-test stability statistic, not a pass /
+                                               # fail of the population guarantee: no colour (review 11-07, W2)
                         cells.append(_f(v, d))
-                L.append(f"{SN[s] if first else ''} & {lab} & " + " & ".join(cells) + " \\\\")
+                L.append(f"{bname if first else ''} & {lab} & " + " & ".join(cells) + " \\\\")
                 first = False
             L.append("\\midrule")
         L[-1] = "\\bottomrule"; L.append("\\end{tabular}"); open(f"{out_dir}/{name}.tex", "w").write("\n".join(L) + "\n")
     # ---- router
-    V = cfg["latex_router_variants"]; rk = cfg.get("latex_router_risk", "risk")
+    V = cfg["latex_router_variants"]; rk = cfg.get("latex_router_risk", "risk"); ck = cfg.get("latex_router_cov", "acceptance")
     L = [head, "\\begin{tabular}{l" + "rr" * len(V) + "rr}", "\\toprule",
          "Benchmark & " + " & ".join(f"\\multicolumn{{2}}{{c}}{{{lab}}}" for _, lab in V) + " & \\multicolumn{2}{c}{Router} \\\\",
          " & " + " & ".join("Cov. & Inf." for _ in V) + " & Lvl.prec & Risk \\\\", "\\midrule"]
@@ -77,7 +81,7 @@ def write(cfg, CONV, CERT, ROUT, out_dir, CERTP=None):
         cells = []
         for v, _ in V:
             rs = [ROUT[(s, j, v, "overall", al)] for j in GEN if (s, j, v, "overall", al) in ROUT]
-            cells += [_f(_m(rs, "acceptance")), _f(_m(rs, "informative"))]
+            cells += [_f(_m(rs, ck)), _f(_m(rs, "informative"))]
         rs = [ROUT[(s, j, "router: cells", "overall", al)] for j in GEN if (s, j, "router: cells", "overall", al) in ROUT]
         if not rs:
             continue
