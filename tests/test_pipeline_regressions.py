@@ -128,6 +128,35 @@ def test_pwl_keeps_split_index():
     assert {k[0] for k in keys} == {"PWL", "G2"}
 
 
+def test_thr_exact_boundary():                 # review round 6, R6-N1 (the reviewer's checks)
+    from fractions import Fraction
+    s = np.arange(1, 11) / 10; e = np.array([0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
+    assert c.thr(s, e, .2) == 1.0                  # the last prefix is exactly -1 and passes
+    assert c.thr(s, e, .2, "float") == 0.6          # the earlier float cumulative sum missed it
+    assert c.thr(np.full(5, .5), np.array([0, 0, 0, 0, 1]), .25) == -np.inf   # a score group passes whole or not at all
+    assert c.thr(np.full(4, .5), np.zeros(4), .25) == .5
+    assert c.thr(np.array([]), np.array([]), .2) == -np.inf
+    assert c.thr(s, np.ones(10), .2) == -np.inf
+    assert c.thr(s, e, Fraction(1, 5)) == c.thr(s, e, .2)
+
+
+def test_thr_literal_sup():                     # R6-N2: the supremum of the passing thresholds need not pass
+    s = np.array([.1, .2, .3, .4, .5]); e = np.array([0, 0, 0, 0, 1])
+    assert c.thr(s, e, .25) == .4 and c.thr(s, e, .25, "sup") == .5
+    assert c.thr(s, np.zeros(5), .25, "sup") == np.inf and c.thr(s, np.zeros(5), .25) == .5
+    assert c.thr(s, np.ones(5), .25, "sup") == -np.inf
+
+
+def test_scope_exact_counterexamples():         # supplement: exact i.i.d. counterexamples (alpha = 1/4, n = 4)
+    from fractions import Fraction as F
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts"))
+    import scope_exact_counterexample as X
+    out = X.main()
+    assert out[("A", "observed")][0] == F(1, 2) and out[("A", "sup")][0] == F(1, 2)
+    assert out[("A", "observed")][2] == F(1, 64) and out[("A", "observed")][3] == F(-3, 320)
+    assert out[("B", "observed")][0] == F(1827, 4904) and out[("B", "sup")][0] == F(3, 8)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for t in tests:

@@ -65,6 +65,7 @@ among the accepted pairs and among the strict claims (summary: tie_share_accepte
 compare with human_tie, the tie rate of all pairs - Proposition 1: a strict claim on a tie is always an error)."""
 import collections
 import numpy as np
+from fractions import Fraction
 from scipy.stats import binom
 from sklearn.linear_model import LogisticRegression
 
@@ -76,11 +77,37 @@ H = lambda p: -(p * np.log(p + 1e-12) + (1 - p) * np.log(1 - p + 1e-12))
 
 
 # ---------------- thresholds (scripts/label_noise_lib.py)
-def thr(s, e, al):
-    """SCOPE linearised threshold, tie-aware (checked at the last position of each distinct score)"""
-    o = np.argsort(s, kind="stable"); ss = s[o]; cs = np.cumsum(e[o] - al)
-    last = np.r_[ss[1:] != ss[:-1], True]; ok = np.where((cs <= -1) & last)[0]
-    return ss[ok.max()] if len(ok) else -np.inf
+def thr(s, e, al, rule="observed"):
+    """SCOPE's calibration condition sum_i 1{s_i <= lam} (E_i - alpha) <= -1 (its Eqs. 5-6) on scores s (lower = more
+    confident) and errors e.  Evaluated exactly (review round 6, R6-N1): with alpha = a/b, a prefix of m calibration points
+    with K errors passes iff b*K - a*m <= -b (integers; the earlier float cumulative sum could reject a prefix that is
+    exactly -1).  The condition is checked at the end of each group of equal scores, so a score group is accepted whole.
+      rule='observed'  largest calibration score whose prefix passes; -inf (abstain) if none passes.  Our reproduction.
+      rule='sup'       the published supremum read literally (R6-N2): +inf if the whole calibration set passes, else the
+                       next distinct calibration score after the largest passing prefix, used in 1{s <= lam} as written
+                       (the supremum need not itself pass); -inf if the passing set is empty.
+      rule='float'     the earlier float cumulative sum, kept only to quantify the change.
+    Neither rule is an official SCOPE implementation (none was available to us)."""
+    s = np.asarray(s, float); e = np.asarray(e, float)
+    if len(s) == 0:
+        return -np.inf
+    o = np.argsort(s, kind="stable"); ss = s[o]; eo = e[o]
+    last = np.r_[ss[1:] != ss[:-1], True]
+    if rule == "float":
+        cs = np.cumsum(eo - al); ok = np.where((cs <= -1) & last)[0]
+        return ss[ok.max()] if len(ok) else -np.inf
+    q = al if isinstance(al, Fraction) else Fraction(str(al))
+    a, b = q.numerator, q.denominator
+    K = np.cumsum(np.rint(eo).astype(np.int64)); m = np.arange(1, len(ss) + 1, dtype=np.int64)
+    ok = np.where((b * K - a * m <= -b) & last)[0]
+    if not len(ok):
+        return -np.inf
+    k = ok.max()
+    if rule == "observed":
+        return ss[k]
+    if rule == "sup":
+        return np.inf if k == len(ss) - 1 else ss[k + 1]
+    raise ValueError(f"unknown rule {rule}")
 
 
 def claims(S, lam):
@@ -479,6 +506,10 @@ def run(cfg, store, log):
                         res["P1s"] = row(u1[te] <= thr(u1[calnt], (fc1 != y)[calnt].astype(float), al), zeros, et1[te], al, Ty[te], TG)
                     if "P2" in methods:
                         res["P2"] = row(u[te] <= thr(u[cal], et[cal], al), zeros, et[te], al, Ty[te], TG)
+                    for code, cset, ecal, rule in (("P1u", calnt, eb, "sup"), ("P2u", cal, et, "sup"),       # review round 6:
+                                                   ("P1f", calnt, eb, "float"), ("P2f", cal, et, "float")):  # sup / old float
+                        if code in methods:
+                            res[code] = row(u[te] <= thr(u[cset], ecal[cset], al, rule), zeros, et[te], al, Ty[te], TG)
                     if "P3" in methods:
                         lam = ltt(u[cal][:, None], et[cal][:, None], al, delta, u[fit][:, None], et[fit][:, None], gc=GC, gf=GF)
                         res["P3"] = row(u[te] <= lam, zeros, et[te], al, Ty[te], TG)
