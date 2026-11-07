@@ -1,0 +1,14 @@
+# New benchmarks as their judge runs arrive (VisionArena-Battle, EvalMuse-40K): the same analysis as certify_source, written to
+# results/newdata_certify_source so the paper's main tables stay fixed until every judge is in (judges with < 95% of the items are skipped).
+name: newdata_certify_source
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [visionarena, evalmuse]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
+methods: [P1, P2, P3, P4, TC, CPL, SL, SA, G0, G2, G2s, G2b, G3, G4, G5]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}      # of the sources; test = the remaining quarter (all its pairs)
+n_splits: 100
+min_coverage: 0.95

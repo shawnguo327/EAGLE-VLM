@@ -1,0 +1,8 @@
+# New benchmarks as their judge runs arrive (VisionArena-Battle, EvalMuse-40K): the same analysis as conventional, written to
+# results/newdata_conventional so the paper's main tables stay fixed until every judge is in (judges with < 95% of the items are skipped).
+name: newdata_conventional
+type: conventional
+include: ../paths.bjserver.yaml
+datasets: [visionarena, evalmuse]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
+min_coverage: 0.95
