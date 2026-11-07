@@ -144,7 +144,7 @@ latex_cert_cols_full:
   - [guarantee_success_source, GS, 2]
   - [splits_answered, Ansd., 0]
   - [accepted_median, Ans., 0]
-  - [accepted_sources_median, Src., 0]
+  - [accepted_sources_median, '$N_{+}$', 0]   # accepted-source support (mean over judges of the per-judge median over splits); not an effective sample size (review round 6, R6-N5)
 latex_router_risk: risk_source
 latex_router_cov: source_coverage
 latex_router_variants:

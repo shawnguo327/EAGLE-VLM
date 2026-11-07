@@ -83,7 +83,7 @@ def hgrid(ax):
 # --------------------------------------------------------------------------------------------- Fig. 2: the problem
 def fig_problem(out):
     S = summary("certify_source")
-    M = [("P1", "SCOPE (as published)", ORANGE, "o", True), ("T1", "ToE-style (zero-shot)", MUTED, "D", False),
+    M = [("P1", "SCOPE (reproduced rule)", ORANGE, "o", True), ("T1", "ToE-style (zero-shot)", MUTED, "D", False),
          ("P2", "SCOPE + ties", AQUA, "o", True), ("G2", "Graded (ours)", BLUE, "o", True)]
     tie = {ds: fnum(next(r for k, r in S.items() if k[0] == ds)["human_tie"]) for ds, _ in BENCH}
     fig, axs = plt.subplots(1, 3, figsize=(3.35, 2.3), sharey=True, gridspec_kw=dict(width_ratios=[0.7, 1.35, 1.25], wspace=0.16))
@@ -220,12 +220,13 @@ def fig_visual(out):
 
 # -------------------------------------------------------------------- Supplement: SCOPE threshold without a safe one
 def fig_scope(out):
-    p = os.path.join(RES, "scope_counterexample", "output_20261107_se.txt")
-    rows = []
+    p = os.path.join(RES, "scope_counterexample", "output_20261107_exact.txt")
+    rows = collections.OrderedDict()
     for line in open(p):
-        m = re.match(r"(.*?)\s+runs accepting ([\d.]+)\s+ratio of expectations ([\d.]+) \(s\.e\. ([\d.]+)\)", line.strip())
+        m = re.match(r"(.*?)\s+(observed|sup|float)\s+draws with a test answer ([\d.]+)\s+mean coverage ([\d.]+)\s+"
+                     r"ratio of expectations ([\d.]+) \(s\.e\. ([\d.]+)\)", line.strip())
         if m:
-            rows.append((m.group(1).strip(), float(m.group(2)), float(m.group(3)), float(m.group(4))))
+            rows.setdefault(m.group(1).strip(), {})[m.group(2)] = tuple(float(m.group(k)) for k in (3, 4, 5, 6))
     lab = {"infeasible: P(err)=.30 for every score": "no safe threshold: error .30 everywhere",
            "infeasible: P(err)=.25 for every score": "no safe threshold: error .25 everywhere",
            "tie floor: P(err)=.25+.5*s (min risk .25 > alpha)": "tie-like floor: error .25 + .5s",
@@ -233,22 +234,28 @@ def fig_scope(out):
            "feasible, monotone: P(err)=.05+.6*s": "safe threshold: error .05 + .6s",
            "feasible, small n=100: P(err)=.4*s": "safe threshold: error .4s, n = 100",
            "feasible, monotone: P(err)=.05+.6*s, 100,000 draws": "safe threshold: error .05 + .6s (100k draws)"}
-    fig, ax = plt.subplots(figsize=(3.35, 1.7))
-    y = np.arange(len(rows))[::-1]
+    fig, ax = plt.subplots(figsize=(3.35, 1.85))
+    names = list(rows); y = np.arange(len(names))[::-1]
     ax.axvline(ALPHA, color=INK2, lw=0.7, ls=(0, (3, 2)))
-    ax.text(ALPHA + 0.002, -0.55, r"$\alpha$", ha="left", va="bottom", fontsize=6.5, color=INK2); ax.set_ylim(-0.6, len(rows) - 0.4)
-    for yi, (name, acc, r, se) in zip(y, rows):
-        c = ORANGE if r > ALPHA + 2 * se else BLUE
-        ax.errorbar(r, yi, xerr=2 * se, fmt="o", ms=3.6, color=c, mec=SURF, mew=0.6, elinewidth=0.8, capsize=0)
-        ax.text(1.0, yi, f"answers in {100 * acc:.0f}%", va="center", ha="right", fontsize=5.4, color=MUTED,
+    ax.text(ALPHA + 0.002, -0.55, r"$\alpha$", ha="left", va="bottom", fontsize=6.5, color=INK2); ax.set_ylim(-0.6, len(names) - 0.4)
+    for yi, name in zip(y, names):
+        for rule, mk, dy, filled in (("observed", "o", 0.13, True), ("sup", "s", -0.13, False)):
+            acc, cov, r, se = rows[name][rule]
+            c = ORANGE if r > ALPHA + 2 * se else BLUE
+            ax.errorbar(r, yi + dy, xerr=2 * se, fmt=mk, ms=3.4, mfc=c if filled else SURF, mec=c, mew=0.9,
+                        color=c, elinewidth=0.8, capsize=0)
+        acc, cov, *_ = rows[name]["observed"]
+        ax.text(1.0, yi, f"answers {100 * acc:.0f}%, cov. {cov:.2f}", va="center", ha="right", fontsize=5.2, color=MUTED,
                 transform=matplotlib.transforms.blended_transform_factory(ax.transAxes, ax.transData))
-    ax.set_yticks(y); ax.set_yticklabels([lab.get(n, n) for n, *_ in rows], fontsize=5.6)
-    ax.set_xlim(0.17, 0.36); ax.set_xticks([0.2, 0.25, 0.3])
-    ax.set_xticklabels(["0.20", "0.25", "0.30"]); ax.set_xlabel("ratio of expectations  E[error $\\cdot$ answer] / E[answer]  ($\\pm$2 s.e.)")
+    ax.set_yticks(y); ax.set_yticklabels([lab.get(n, n) for n in names], fontsize=5.6)
+    ax.set_xlim(0.17, 0.375); ax.set_xticks([0.2, 0.25, 0.3]); ax.set_xticklabels(["0.20", "0.25", "0.30"])
+    ax.set_xlabel("ratio of expectations  E[error $\\cdot$ answer] / E[answer]  ($\\pm$2 s.e.)")
     hgrid(ax)
-    ax.legend(handles=[Line2D([], [], ls="", marker="o", ms=3.6, mfc=ORANGE, mec=SURF, label="above $\\alpha$ by > 2 s.e."),
-                       Line2D([], [], ls="", marker="o", ms=3.6, mfc=BLUE, mec=SURF, label="at or below $\\alpha$")],
-              loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False, handletextpad=0.2)
+    ax.legend(handles=[Line2D([], [], ls="", marker="o", ms=3.4, mfc=INK2, mec=INK2, label="observed-score rule"),
+                       Line2D([], [], ls="", marker="s", ms=3.4, mfc=SURF, mec=INK2, mew=0.9, label="literal supremum"),
+                       Line2D([], [], ls="", marker="o", ms=3.4, mfc=ORANGE, mec=ORANGE, label="above $\\alpha$ by > 2 s.e."),
+                       Line2D([], [], ls="", marker="o", ms=3.4, mfc=BLUE, mec=BLUE, label="not above $\\alpha$")],
+              loc="lower center", bbox_to_anchor=(0.45, 1.0), ncol=2, frameon=False, handletextpad=0.2, columnspacing=1.0)
     save(fig, out, "fig_scope_counterexample")
 
 

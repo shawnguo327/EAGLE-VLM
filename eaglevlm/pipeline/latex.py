@@ -65,15 +65,19 @@ def write(cfg, CONV, CERT, ROUT, out_dir, CERTP=None):
                 rs = [CERT[(s, j, code, al)] for j in GEN if (s, j, code, al) in CERT]
                 if not rs:
                     continue
+                # review round 6 (R6-N6): a method run for fewer judges than the benchmark label says carries its own count,
+                # and a risk averaged over fewer judges (the others never answered) carries that number as a superscript
+                mlab = lab + (f" ({len(rs)})" if len(rs) < max(nj, 1) else "")
                 cells = []
                 for k, _, d in cols:
-                    v = _m(rs, k)
+                    v = _m(rs, k); nk = sum(1 for r in rs if isinstance(r.get(k), float) and r[k] == r[k])
+                    sup = f"$^{{{nk}}}$" if "risk" in k and 0 < nk < len(rs) else ""
                     if "risk" in k and v == v and v > al + 1e-9:      # risk_source, pooled_risk_source
-                        cells.append(f"\\textcolor{{red}}{{{_f(v, d)}}}")
+                        cells.append(f"\\textcolor{{red}}{{{_f(v, d)}}}{sup}")
                     else:                      # guarantee success is a finite-test stability statistic, not a pass /
                                                # fail of the population guarantee: no colour (review 11-07, W2)
-                        cells.append(_f(v, d))
-                L.append(f"{bname if first else ''} & {lab} & " + " & ".join(cells) + " \\\\")
+                        cells.append(_f(v, d) + sup)
+                L.append(f"{bname if first else ''} & {mlab} & " + " & ".join(cells) + " \\\\")
                 first = False
             L.append("\\midrule")
         L[-1] = "\\bottomrule"; L.append("\\end{tabular}"); open(f"{out_dir}/{name}.tex", "w").write("\n".join(L) + "\n")
