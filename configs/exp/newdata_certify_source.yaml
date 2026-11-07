@@ -5,7 +5,7 @@ type: certify
 include: ../paths.bjserver.yaml
 datasets: [imagenhub/t2i, imagenhub/edit, visionarena, evalmuse]
 judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
-methods: [P1, P2, P3, P4, TC, CPL, SL, SA, G0, G2, G2s, G2b, G3, G4, G5]
+methods: [P1, P2, P3, P4, TC, CPL, SL, SA, SLo, SAo, G0, G2, G2s, G2b, G3, G4, G5]   # SLo / SAo as in certify_source (review 11-07)
 alphas: [0.1, 0.2, 0.3]
 delta: 0.1
 unit: source1
