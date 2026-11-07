@@ -1,9 +1,9 @@
-# New benchmarks as their judge runs arrive (VisionArena-Battle, EvalMuse-40K): the same analysis as router_source, written to
+# New benchmarks as their judge runs arrive (ImagenHub, VisionArena-Battle, EvalMuse-40K): the same analysis as router_source, written to
 # results/newdata_router_source so the paper's main tables stay fixed until every judge is in (judges with < 95% of the items are skipped).
 name: newdata_router_source
 type: router
 include: ../paths.bjserver.yaml
-datasets: [visionarena, evalmuse]
+datasets: [imagenhub/t2i, imagenhub/edit, visionarena, evalmuse]
 judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
 alphas: [0.1, 0.2, 0.3]
 delta: 0.1
