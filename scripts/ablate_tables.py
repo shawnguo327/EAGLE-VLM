@@ -1,6 +1,8 @@
 """LaTeX tables for the improvement-plan ablations (results/<name>/latest/summary.csv of eaglevlm.pipeline.ablate):
 tab_factorial.tex (signal x claim family), tab_tiechannel.tex (instance p(T) vs tie prior), tab_selection.tex
 (two-candidate selection with escalation).  Means over the general VLM judges at one alpha; standard library only.
+Coverage-type entries use the source-uniform coverage (1/G) sum_g a_g when the run has it (review 11-07 P0-B), else the
+pair share; the header comment of each table names the column used.
 
     python scripts/ablate_tables.py --results /media/shawn/C/papers/VLM/results --name ablate_source --out <overleaf>/tables_auto
 """
@@ -69,9 +71,10 @@ def main():
     write(a.out, "tab_tiechannel.tex", head, rows, note)
     head = ("\\begin{tabular}{lrrrrrr}\n\\toprule\n & \\multicolumn{5}{c}{Automated share at certified selection risk} & Risk \\\\\n"
             "Benchmark & U1s & U1 & U1c & U2 & U3 & U2 \\\\\n\\midrule\n")
-    rows = [f"{n} & " + " & ".join(f(mean(acc.get((d, m), []), "acceptance")) for m in ("U1s", "U1", "U1c", "U2", "U3"))
+    cov = "source_coverage" if any("source_coverage" in r for v in acc.values() for r in v[:1]) else "acceptance"
+    rows = [f"{n} & " + " & ".join(f(mean(acc.get((d, m), []), cov)) for m in ("U1s", "U1", "U1c", "U2", "U3"))
             + f" & {f(mean(acc.get((d, 'U2'), []), 'risk_source'), 3)} \\\\" for d, n in ds]
-    write(a.out, "tab_selection.tex", head, rows, note)
+    write(a.out, "tab_selection.tex", head, rows, note + f", automated share = {cov}")
     rc = os.path.realpath(os.path.join(a.results, "router_controls", "latest", "summary.csv"))
     if os.path.exists(rc):                                   # improvement plan experiment 4: router same-target controls
         V = [("pairwise graded (G2)", "Graded"), ("control: routed, no pointwise", "Control"),
@@ -86,10 +89,12 @@ def main():
                                    ("agiqa3k", "AGIQA-3K")] if (d, V[0][0], "overall") in R]
         head = ("\\begin{tabular}{ll" + "r" * len(V) + "}\n\\toprule\n & & " + " & ".join(lab for _, lab in V) + " \\\\\n\\midrule\n")
         rows = []
+        rcov = "source_coverage" if any("source_coverage" in r for v in R.values() for r in v[:1]) else "acceptance"
         for d, n in rds:
-            rows.append(f"{n} & Cov. & " + " & ".join(f(mean(R.get((d, v, 'overall'), []), "acceptance")) for v, _ in V) + " \\\\")
+            rows.append(f"{n} & Cov. & " + " & ".join(f(mean(R.get((d, v, 'overall'), []), rcov)) for v, _ in V) + " \\\\")
             rows.append(f" & Abs.$^\\dagger$ & " + " & ".join(f(mean(R.get((d, v, 'overall+absolute'), []), "level_correct_share")) for v, _ in V) + " \\\\")
-        write(a.out, "tab_router_controls.tex", head, rows, f"router_controls/{os.path.basename(os.path.dirname(rc))}, alpha {a.alpha}")
+        write(a.out, "tab_router_controls.tex", head, rows,
+              f"router_controls/{os.path.basename(os.path.dirname(rc))}, alpha {a.alpha}, Cov. = {rcov}")
     print("written to", a.out, "from", note)
 
 
