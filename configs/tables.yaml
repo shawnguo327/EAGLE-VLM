@@ -144,6 +144,7 @@ latex_cert_cols_full:
   - [guarantee_success_source, GS, 2]
   - [splits_answered, Ansd., 0]
   - [accepted_median, Ans., 0]
+  - [accepted_sources_median, Src., 0]
 latex_router_risk: risk_source
 latex_router_cov: source_coverage
 latex_router_variants:
