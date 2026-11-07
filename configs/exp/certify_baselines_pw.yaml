@@ -1,0 +1,18 @@
+# Novelty review (11-07, E3): pointwise baselines on the main source-level protocol, every method on the same items (those
+# with every pointwise score; the share dropped is logged).  PWT: always-answer pointwise tie band; PWL: pointwise strict
+# claims with LTT; PWTL / PWTH: PWT's band fitted on the fit split and certified with LTT (own margin / shared calibrator);
+# G2pw / P4pw: graded / strict claims from the calibrator with the same pointwise features; pairwise-only rows for reference.
+name: certify_baselines_pw
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b]
+methods: [G2, G2s, G2pw, AMX, TC, TCL, TCH, PWT, PWL, PWTL, PWTH, P4, P4pw]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+min_coverage: 0.95
+pointwise: true
+require_pointwise: true

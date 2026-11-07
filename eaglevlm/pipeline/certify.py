@@ -6,6 +6,10 @@ Methods:
   P1  SCOPE as published (BPE of order-averaged forced choice; calibration WITHOUT ties; SCOPE linearised threshold)
   P1s same, single order          P2  SCOPE, ties kept in calibration       P3  strict + LTT (BPE), ties kept
   P4  strict + LTT with all our signal components and the 3-class calibrator
+  TCL / TCH  (novelty review E1) TC's tie band fitted on the fit split, then answered by the distance to the band edge (TCL) or by
+      the shared calibrator's probability of the decision (TCH) and certified with LTT like G2s; singleton claims A / B / T
+  AMX (E2) the shared calibrator's three-way argmax, answered by its probability and certified with LTT; 'agree_g2s' = share of
+      test pairs with the same output as G2s.   PWTL / PWTH: the same for PWT's pointwise tie band (E3)
   TC  tie calibration (Deutsch et al., EMNLP 2023, "Ties Matter"): 'tie' when |p - .5| <= eps, otherwise the forced-choice
       winner; eps maximises three-way accuracy on the calibration split; a claim for every pair, no guarantee
   T1  Trust-or-Escalate as published (4 simulated annotators; calibration without ties)   T2  ToE, ties kept
@@ -413,6 +417,13 @@ def run(cfg, store, log):
             ids = sorted(set.intersection(*[set(v) for v in SG.values()]))
             if len(ids) < 200 or len(ids) < cfg.get("min_coverage", .95) * len(I):
                 log(f"skip {spec} {j}: {len(ids)} / {len(I)} items with both prompts in both orders"); continue
+            if cfg.get("require_pointwise"):     # novelty review E3: every method on the same items, all pointwise scores present
+                pws0 = [pointwise_feats(store, ds, m, ids) for m in members]; pws0 = [x for x in pws0 if x is not None]
+                if not pws0:
+                    log(f"skip {spec} {j}: no pointwise outputs"); continue
+                okp = ~np.isnan(np.nanmean(pws0, 0)).any(1)
+                log(f"pointwise {spec} {j}: {int(okp.sum())} / {len(ids)} items have every pointwise score; the others are dropped for all methods")
+                ids = [i for i, k in zip(ids, okp) if k]
             n = len(ids); y = np.array([{"0": 0, "1": 1, "tie": 2}[str(I[i]["label"])] for i in ids]); Ty = y == 2
             grp = cfg.get("group"); unit_src = cfg.get("unit", "pair") == "source"; unit_one = cfg.get("unit", "pair") == "source1"
             unit_sp = cfg.get("unit", "pair") == "source_pairs"
@@ -441,7 +452,7 @@ def run(cfg, store, log):
                 F_full, F_one, F_bin = np.concatenate(parts_full, 1), np.concatenate(parts_one, 1), np.concatenate(parts_bin, 1)
                 p, Q, f1, q1 = np.mean(P_, 0), np.mean(Q_, 0), np.mean(F1_, 0), np.mean(Q1_, 0)
             PWF = None
-            if {"G2pw", "G5pw", "P4pw", "PWT", "PWL"} & set(methods) and cfg.get("pointwise", True):
+            if {"G2pw", "G5pw", "P4pw", "PWT", "PWL", "PWTL", "PWTH"} & set(methods) and cfg.get("pointwise", True):
                 pws = [pointwise_feats(store, ds, m, ids) for m in members]; pws = [x for x in pws if x is not None]
                 PWF = np.nanmean(pws, 0) if pws else None     # may hold NaN (missing score): imputed per split from fit rows
             fc = np.where(p > .5, 0, 1); eb = (fc != y).astype(float); et = np.where(y == 2, 1.0, eb)
@@ -543,6 +554,39 @@ def run(cfg, store, log):
                             tc_ch = np.where(mg[te] <= eps, 1, 0)
                             tc_err = np.where(tc_ch == 1, y[te] != 2, fc[te] != y[te]).astype(float)
                         res["TC"] = row(np.ones(len(te), bool), tc_ch, tc_err, al, Ty[te], TG)
+                    # novelty review E1 / E2: a Ties Matter-style tie band (eps maximising three-way accuracy on the FIT rows) or
+                    # the three-way argmax of the shared calibrator, each answered by a score and certified with the same LTT,
+                    # calibration units and loss as G2s (singleton claims A / B / T; a human tie is an error unless T is claimed)
+                    if {"TCL", "TCH", "AMX", "PWTL", "PWTH"} & set(methods):
+                        if al == AL[0]:
+                            def band(mgv, fcv):
+                                of = fit[np.argsort(mgv[fit], kind="stable")]; mf = mgv[of]
+                                ht_ = np.cumsum(y[of] == 2); hs_ = np.cumsum(fcv[of] == y[of]); tot_ = hs_[-1]
+                                last_ = np.r_[mf[1:] != mf[:-1], True]; acc_ = (ht_ + tot_ - hs_)[last_]
+                                return mf[last_][int(np.argmax(acc_))] if acc_.max() > tot_ else -1.0
+                            mgt = np.abs(p - .5); eps_t = band(mgt, fc)
+                            h_tc = np.where(mgt <= eps_t, 2, fc); e_tc = (h_tc != y).astype(float)
+                            s_tcl = 1 - np.minimum(np.abs(mgt - eps_t) / .5, 1)          # native: distance to the band edge
+                            s_tch = 1 - Prf[np.arange(n), h_tc]                           # shared calibrator: p(decision)
+                            h_am = np.argmax(Prf, 1); s_am = 1 - Prf.max(1); e_am = (h_am != y).astype(float)
+                            k_side = np.where(Prf[:, 0] >= Prf[:, 1], 0, 1)
+                            cands = [("TCL", s_tcl, e_tc, h_tc), ("TCH", s_tch, e_tc, h_tc), ("AMX", s_am, e_am, h_am)]
+                            if PWF is not None and {"PWTL", "PWTH"} & set(methods):
+                                dE2 = PWFs[:, 0] - PWFs[:, 1]; pfc = np.where(dE2 > 0, 0, 1); mgp = np.abs(dE2)
+                                eps_p = band(mgp, pfc); h_pw = np.where(mgp <= eps_p, 2, pfc); e_pw = (h_pw != y).astype(float)
+                                cands += [("PWTL", 1 - np.minimum(np.abs(mgp - eps_p) / 8, 1), e_pw, h_pw),
+                                          ("PWTH", 1 - Prp[np.arange(n), h_pw], e_pw, h_pw)]
+                        for key, sv, ev, hv in cands:
+                            if key in methods:
+                                lam = ltt(sv[cal][:, None], ev[cal][:, None], al, delta, sv[fit][:, None], ev[fit][:, None], gc=GC, gf=GF)
+                                okv = sv[te] <= lam
+                                d = row(okv, np.where(hv[te] == 2, 1, 0), ev[te], al, Ty[te], TG)
+                                if key == "AMX":            # E2: same output as G2s (both abstain, or the same singleton)?
+                                    S2a, E2a = S3[:, :2], E3[:, :2]
+                                    ok2, ch2 = claims(S2a[te], ltt(S2a[cal], E2a[cal], al, delta, S2a[fit], E2a[fit], gc=GC, gf=GF))
+                                    lab2 = np.where(ch2 == 0, k_side[te], 2)
+                                    d["agree_g2s"] = float(np.mean((~ok2 & ~okv) | (ok2 & okv & (lab2 == hv[te]))))
+                                res[key] = d
                     if nsa >= 200:
                         ct, tt, ft = cal[has[cal]], te[has[te]], fit[has[fit]]
                         ctn = ct[y[ct] != 2]
@@ -643,6 +687,7 @@ def summarize(rows):
                                             if sum(r.get("src_acc_mass", 0) for r in R) > 0 else np.nan),
                         accepted_sources_median=(float(np.median([r["accepted_sources"] for r in R])) if all("accepted_sources" in r for r in R) else np.nan),
                         accepted_median=float(np.median([r["accepted"] for r in R])),
+                        agree_g2s=(float(np.mean([r["agree_g2s"] for r in R])) if all("agree_g2s" in r for r in R) else np.nan),
                         pooled_risk=(sum(r["errors"] for r in R) / sum(r["accepted"] for r in R) if sum(r["accepted"] for r in R) else np.nan),
                         violation_all=float(np.mean([r["violated"] == 1.0 for r in R])),
                         guarantee_success_all=float(1 - np.mean([r["violated"] == 1.0 for r in R])),

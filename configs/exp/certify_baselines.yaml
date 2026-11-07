@@ -1,0 +1,18 @@
+# Novelty review (11-07, E1/E2): the closest tie-aware predictors with the same selective certificate as G2s, on the main
+# source-level protocol and splits.  TCL / TCH: Ties Matter-style tie band fitted on the fit split, answered by its own margin
+# (TCL) or by the shared calibrator's probability of the decision (TCH); AMX: the calibrator's three-way argmax; all certified
+# with the same fixed-sequence LTT and calibration units; G2s (strict / tie singletons) is the same-claim reference, G2 adds
+# weak claims, SAo is the ordinal generic-set control, TC the always-answer tie calibration.
+name: certify_baselines
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [mllm_judge, mllm_judge_sp, genaibench, genai_arena/generation, genai_arena/edition, pickapic_u, imagerewarddb, mtbench_human, arena55k]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b, internvl35_38b, r1reward, llavacritic7b]   # the judges of certify_source
+methods: [G2, G2s, AMX, TC, TCL, TCH, SAo]
+alphas: [0.1, 0.2, 0.3]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+min_coverage: 0.95
+pointwise: false

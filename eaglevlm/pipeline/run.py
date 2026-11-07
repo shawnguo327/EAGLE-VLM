@@ -50,10 +50,10 @@ def _unit(args):
 def write_csv(path, rows):
     if not rows:
         return
-    keys = list(rows[0].keys())
+    keys = list(dict.fromkeys(k for r in rows for k in r))      # union of the rows' fields (some methods add their own)
     op = gzip.open if path.endswith(".gz") else open
     with op(path, "wt", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=keys); w.writeheader()
+        w = csv.DictWriter(f, fieldnames=keys, restval=""); w.writeheader()
         for r in rows:
             w.writerow({k: ("" if v is None else v) for k, v in r.items()})
 
