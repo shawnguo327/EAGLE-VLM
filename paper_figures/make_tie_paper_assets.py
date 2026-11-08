@@ -335,9 +335,126 @@ def tab_decision(out, al=.2):
     open(f"{out}/tables/tab_decision.tex", "w").write("\n".join(L) + "\n")
 
 
+HEAD_ROWS = [("mllm_judge", "MLLM-as-a-Judge (pairs)", "main"), ("mllm_judge_sp", "MLLM-as-a-Judge (scores)", "main"),
+             ("mtbench_human", "MT-Bench (text)", "main"), ("arena55k", "Chatbot Arena (text)", "main"),
+             ("visionarena", "VisionArena (battles)", "new"), ("genaibench", "GenAI-Bench", "main"),
+             ("genai_arena/generation", "GenAI-Arena gen.", "main"), ("genai_arena/edition", "GenAI-Arena edit", "main"),
+             ("imagenhub/edit", "ImagenHub edit", "new"), ("bon_mmmu", "MMMU Best-of-8", "bon_mmmu"),
+             ("bon_scienceqa", "ScienceQA Best-of-8", "bon")]
+TIEAWARE = ["P2", "P3", "P4", "G2s", "AMX", "TCH", "TCL", "PWTH", "PWTL", "PWL"]      # certified tie-aware baselines
+
+
+def tab_headline(out, al=.2):
+    src = {"main": ["certify_source", "certify_baselines", "certify_baselines_pw"],
+           "new": ["newdata_certify_source", "newdata_certify_baselines"],
+           "bon_mmmu": ["downstream_bon_mmmu"], "bon": ["downstream_bon"]}
+    cache = {}
+
+    def load(name):
+        if name not in cache:
+            cache[name] = rows(latest(name) + "/summary.csv")
+        return cache[name]
+    FS = list(csv.DictReader(open(latest("certify_toe_fewshot") + "/summary.csv")))
+
+    def stat(R, ds, m):
+        c, n = jm(R, ds, m, "source_coverage", al); r = jm(R, ds, m, "pooled_risk_source", al)[0]
+        return c, r, n
+
+    def acc_cell(c, r):
+        if c != c or c < 0.005 or r != r:
+            return f"{cell(c)} & --"
+        a = 1 - r; s = f"{a:.2f}"
+        return f"{cell(c)} & " + (f"\\textcolor{{red}}{{{s}}}" if r > al + 1e-9 else s)
+    L = [HEAD.format(src="certify_source, newdata_certify_source, certify_baselines*, certify_toe_fewshot, downstream_bon*"),
+         r"\begin{tabular}{lrrrrrrrrr}", r"\toprule",
+         r" & \multicolumn{2}{c}{SCOPE / LEC rule} & \multicolumn{2}{c}{Trust-or-Escalate} & Best tie-aware & \multicolumn{2}{c}{\textbf{Graded (ours)}} & \multicolumn{2}{c}{Strict-safe (ours)} \\",
+         r"Benchmark & Cov. & Acc. & Cov. & Acc. & Cov. & Cov. & Acc. & Cov. & Acc. \\", r"\midrule"]
+    for ds, nm, kind in HEAD_ROWS:
+        Rc = load(src[kind][0])                                   # canonical run for SCOPE / ToE / ours
+        Rs = [r for name in src[kind] for r in load(name)]        # every run, for the tie-aware baselines
+        p1 = stat(Rc, ds, "P1"); g2 = stat(Rc, ds, "G2"); g5 = stat(Rc, ds, "G5")
+        if g2[2] == 0:
+            continue
+        fs = [r for r in FS if r["dataset"] == ds and r["method"] == "T4" and abs(f(r["alpha"]) - al) < 1e-9]
+        if fs:
+            toe = (np.mean([f(r["source_coverage"]) for r in fs]), np.nanmean([f(r["pooled_risk_source"]) for r in fs]) if any(f(r["pooled_risk_source"]) == f(r["pooled_risk_source"]) for r in fs) else np.nan, "$^{\\dagger}$")
+        else:
+            t1 = stat(Rc, ds, "T1"); toe = (t1[0], t1[1], "$^{\\ddagger}$" if t1[2] else "")
+        cand = []                                                 # valid tie-aware baselines only (pooled risk <= alpha)
+        for m in TIEAWARE:
+            for name in src[kind]:
+                c, r, n = stat(load(name), ds, m)
+                if n and (r != r or r <= al + 1e-9):
+                    cand.append(c)
+        best = max(cand) if cand else np.nan
+        toe_cells = "-- & --" if toe[0] != toe[0] else acc_cell(toe[0], toe[1]).replace(" & ", toe[2] + " & ", 1)
+        L.append(f"{nm} ({g2[2]}) & {acc_cell(*p1[:2])} & {toe_cells} & {cell(best)} & "
+                 f"\\textbf{{{cell(g2[0])}}} & {acc_cell(g2[0], g2[1]).split(' & ')[1]} & {acc_cell(*g5[:2])} \\\\")
+    L += [r"\bottomrule", r"\end{tabular}"]
+    open(f"{out}/tables/tab_headline.tex", "w").write("\n".join(L) + "\n")
+
+
+APP_METHODS = [("P1", "SCOPE rule, ties dropped (published)"), ("P2", "SCOPE rule, ties kept"), ("P3", "Strict claims + LTT"),
+               ("P4", "Strict claims, all signals + LTT"), ("T1", "ToE-style, zero-shot personas"), ("T4", "ToE, few-shot (published)"),
+               ("T5", "ToE, few-shot, ties kept"), ("TC", "Tie calibration (answers all)"), ("PWT", "Pointwise tie band (answers all)"),
+               ("CPL", "Conformal LAC sets"), ("SL", "Generic LAC sets + LTT"), ("SA", "Generic APS sets + LTT"),
+               ("SLo", "LAC sets, ordinal + LTT"), ("SAo", "APS sets, ordinal + LTT"), ("G2s", "Singletons $\\{A\\},\\{B\\},\\{T\\}$ + LTT"),
+               ("AMX", "Three-way argmax + LTT"), ("TCL", "Tie band (margin) + LTT"), ("TCH", "Tie band (calibrated) + LTT"),
+               ("PWL", "Pointwise strict + LTT"), ("PWTL", "Pointwise band (gap) + LTT"), ("PWTH", "Pointwise band (calibrated) + LTT"),
+               ("G2", "Graded claims (ours)"), ("G2pw", "Graded + pointwise (ours)"), ("G5", "Graded, strict-safe (ours)")]
+APP_ROWS = [(ds, nm, kind) for ds, nm, kind in HEAD_ROWS] + [("pickapic_u", "Pick-a-Pic", "main"), ("imagerewarddb", "ImageRewardDB", "main"),
+                                                           ("evalmuse", "EvalMuse", "new"), ("imagenhub/t2i", "ImagenHub t2i", "new")]
+
+
+def tab_appendix_all(out):
+    """every method, every alpha, every benchmark: coverage and pooled source risk (red above alpha), incl. methods that
+    break the promised risk; one table per benchmark"""
+    src = {"main": ["certify_source", "certify_baselines", "certify_baselines_pw", "certify_toe_fewshot"],
+           "new": ["newdata_certify_source", "newdata_certify_baselines"],
+           "bon_mmmu": ["downstream_bon_mmmu"], "bon": ["downstream_bon"]}
+    cache = {}
+
+    def load(name):
+        if name not in cache:
+            cache[name] = list(csv.DictReader(open(latest(name) + "/summary.csv")))
+        return cache[name]
+    L = [HEAD.format(src="certify_source, newdata_certify_source, certify_baselines*, certify_toe_fewshot, downstream_bon*")]
+    for ds, nm, kind in APP_ROWS:
+        body = []
+        for m, mn in APP_METHODS:
+            cells, nj = [], 0
+            for al in (.1, .2, .3):
+                vals = None
+                for name in src[kind]:
+                    R = [r for r in load(name) if r["dataset"] == ds and r["method"] == m and abs(f(r["alpha"]) - al) < 1e-9
+                         and (r["judge"] in J6 or name in ("certify_toe_fewshot", "downstream_bon_mmmu", "downstream_bon"))]
+                    if R:
+                        vals = R; break
+                if not vals:
+                    cells.append("-- & --"); continue
+                nj = len(vals)
+                c = np.mean([f(r["source_coverage"]) for r in vals])
+                rk = [f(r["pooled_risk_source"]) for r in vals]; rk = [x for x in rk if x == x]
+                if not rk or c < 0.0005:
+                    cells.append(f"{c:.2f} & --"); continue
+                r_ = np.mean(rk); s = f"{r_:.2f}"
+                cells.append(f"{c:.2f} & " + (f"\\textcolor{{red}}{{{s}}}" if r_ > al + 1e-9 else s))
+            if nj:
+                body.append(f"{mn} ({nj}) & " + " & ".join(cells) + " \\\\")
+        if not body:
+            continue
+        L += [r"\begin{table}[h]\centering\scriptsize\setlength{\tabcolsep}{2.5pt}", r"\begin{tabular}{lrrrrrr}", r"\toprule",
+              r" & \multicolumn{2}{c}{$\alpha=.1$} & \multicolumn{2}{c}{$\alpha=.2$} & \multicolumn{2}{c}{$\alpha=.3$} \\",
+              r"Method (judges) & Cov. & Risk & Cov. & Risk & Cov. & Risk \\", r"\midrule"] + body + [r"\bottomrule", r"\end{tabular}",
+              f"\\caption{{{nm}: coverage and realised risk of every method at every $\\alpha$, including methods above the promised risk "
+              f"(red). Source level, 100 splits, mean over judges; ``answers all'': no certificate.}}",
+              f"\\label{{tab:app:{ds.replace('/', '-')}}}", r"\end{table}", ""]
+    open(f"{out}/tables/tab_appendix_all.tex", "w").write("\n".join(L) + "\n")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--out", required=True); a = ap.parse_args()
     os.makedirs(f"{a.out}/tables", exist_ok=True); os.makedirs(f"{a.out}/figs", exist_ok=True)
     for fn in (tab_baselines, tab_claimrisk, tab_tietypes, tab_triage, fig_tietypes, fig_triage, tab_forced, tab_tieaversion,
-               tab_rankscore, tab_transitivity, tab_decision):
+               tab_rankscore, tab_transitivity, tab_decision, tab_headline, tab_appendix_all):
         fn(a.out); print("wrote", fn.__name__)
