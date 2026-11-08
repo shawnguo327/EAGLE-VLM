@@ -365,31 +365,42 @@ def tab_headline(out, al=.2):
             return f"{cell(c)} & --"
         a = 1 - r; s = f"{a:.2f}"
         return f"{cell(c)} & " + (f"\\textcolor{{red}}{{{s}}}" if r > al + 1e-9 else s)
+
+    def fs(ds, m):
+        R = [r for r in FS if r["dataset"] == ds and r["method"] == m and abs(f(r["alpha"]) - al) < 1e-9]
+        if not R:
+            return None
+        rk = [f(r["pooled_risk_source"]) for r in R]; rk = [x for x in rk if x == x]
+        return np.mean([f(r["source_coverage"]) for r in R]), (np.mean(rk) if rk else np.nan)
     L = [HEAD.format(src="certify_source, newdata_certify_source, certify_baselines*, certify_toe_fewshot, downstream_bon*"),
-         r"\begin{tabular}{lrrrrrrrrr}", r"\toprule",
-         r" & \multicolumn{2}{c}{SCOPE / LEC rule} & \multicolumn{2}{c}{Trust-or-Escalate} & Best tie-aware & \multicolumn{2}{c}{\textbf{Graded (ours)}} & \multicolumn{2}{c}{Strict-safe (ours)} \\",
-         r"Benchmark & Cov. & Acc. & Cov. & Acc. & Cov. & Cov. & Acc. & Cov. & Acc. \\", r"\midrule"]
+         r"\begin{tabular}{lrrrrrrrrrrr}", r"\toprule",
+         r" & \multicolumn{2}{c}{SCOPE / LEC rule} & \multicolumn{3}{c}{Trust-or-Escalate} & No weak claim & \multicolumn{2}{c}{Ordinal sets + LTT} & \multicolumn{2}{c}{\textbf{Graded (ours)}} & Strict-safe \\",
+         r" & \multicolumn{2}{c}{ties dropped} & \multicolumn{2}{c}{ties dropped} & ties kept & best & \multicolumn{2}{c}{(same claims)} & & & (ours) \\",
+         r"Benchmark & Cov. & Acc. & Cov. & Acc. & Cov. & Cov. & Cov. & Acc. & Cov. & Acc. & Cov. \\", r"\midrule"]
     for ds, nm, kind in HEAD_ROWS:
-        Rc = load(src[kind][0])                                   # canonical run for SCOPE / ToE / ours
-        Rs = [r for name in src[kind] for r in load(name)]        # every run, for the tie-aware baselines
+        Rc = load(src[kind][0])
         p1 = stat(Rc, ds, "P1"); g2 = stat(Rc, ds, "G2"); g5 = stat(Rc, ds, "G5")
         if g2[2] == 0:
             continue
-        fs = [r for r in FS if r["dataset"] == ds and r["method"] == "T4" and abs(f(r["alpha"]) - al) < 1e-9]
-        if fs:
-            toe = (np.mean([f(r["source_coverage"]) for r in fs]), np.nanmean([f(r["pooled_risk_source"]) for r in fs]) if any(f(r["pooled_risk_source"]) == f(r["pooled_risk_source"]) for r in fs) else np.nan, "$^{\\dagger}$")
+        t4, t5 = fs(ds, "T4"), fs(ds, "T5")
+        if t4 is None:                                            # zero-shot persona adaptation where few-shot was not run
+            t1, t2 = stat(Rc, ds, "T1"), stat(Rc, ds, "T2")
+            t4 = (t1[0], t1[1]) if t1[2] else None; t5 = (t2[0], t2[1]) if t2[2] else None; mark = "$^{\\ddagger}$"
         else:
-            t1 = stat(Rc, ds, "T1"); toe = (t1[0], t1[1], "$^{\\ddagger}$" if t1[2] else "")
-        cand = []                                                 # valid tie-aware baselines only (pooled risk <= alpha)
+            mark = "$^{\\dagger}$"
+        toe = ("-- & --" if t4 is None else acc_cell(*t4).replace(" & ", mark + " & ", 1)) + " & " + ("--" if t5 is None else cell(t5[0]))
+        cand = []                                                 # outputs without a weak claim that keep the promise
         for m in TIEAWARE:
             for name in src[kind]:
                 c, r, n = stat(load(name), ds, m)
                 if n and (r != r or r <= al + 1e-9):
                     cand.append(c)
         best = max(cand) if cand else np.nan
-        toe_cells = "-- & --" if toe[0] != toe[0] else acc_cell(toe[0], toe[1]).replace(" & ", toe[2] + " & ", 1)
-        L.append(f"{nm} ({g2[2]}) & {acc_cell(*p1[:2])} & {toe_cells} & {cell(best)} & "
-                 f"\\textbf{{{cell(g2[0])}}} & {acc_cell(g2[0], g2[1]).split(' & ')[1]} & {acc_cell(*g5[:2])} \\\\")
+        ords = [stat(Rc, ds, m) for m in ("SAo", "SLo")]
+        ords = [x for x in ords if x[2]]
+        ordc = max(ords, key=lambda x: x[0]) if ords else (np.nan, np.nan, 0)
+        L.append(f"{nm} ({g2[2]}) & {acc_cell(*p1[:2])} & {toe} & {cell(best)} & {acc_cell(*ordc[:2])} & "
+                 f"\\textbf{{{cell(g2[0])}}} & {acc_cell(g2[0], g2[1]).split(' & ')[1]} & {cell(g5[0])} \\\\")
     L += [r"\bottomrule", r"\end{tabular}"]
     open(f"{out}/tables/tab_headline.tex", "w").write("\n".join(L) + "\n")
 
