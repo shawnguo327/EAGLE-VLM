@@ -1,0 +1,13 @@
+# addendum 27 (2026-11-15): explicit statements certified alone, finer alpha grid; otherwise as certify_source
+name: a27_ih_certify_source
+type: certify
+include: ../paths.bjserver.yaml
+datasets: [imagenhub/edit]
+judges: [qwen3vl8b, internvl35_8b, qwen35_9b, qwen25vl7b, qwen3vl32b]
+methods: [P4, G2, G2s]
+alphas: [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4]
+delta: 0.1
+unit: source1
+split: {fit: 0.25, cal: 0.5}
+n_splits: 100
+min_coverage: 0.95
